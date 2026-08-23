@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Huzaifa Institute - AI Voice Assistant</title>
+  <!-- Socket.io Library -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+
+  <div class="text-center p-8">
+    <h1 class="text-4xl font-bold text-gray-800 mb-4">Welcome to Huzaifa Institute</h1>
+    <p class="text-gray-600">Aapka Python AI Assistant bottom right screen par ready hai!</p>
+  </div>
+
+  <!-- FLOATING WIDGET BUTTON -->
+  <div class="fixed bottom-6 right-6 z-50">
+    <button id="widgetBtn" onclick="toggleWidget()" class="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-2xl flex items-center gap-2 transition-transform transform hover:scale-105">
+      <span class="text-2xl">🤖</span>
+      <span class="font-semibold text-sm">Ask AI / Voice</span>
+    </button>
+
+    <!-- WIDGET MODAL POPUP -->
+    <div id="widgetModal" class="hidden absolute bottom-16 right-0 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[450px]">
+      
+      <!-- Header -->
+      <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
+        <div>
+          <h3 class="font-bold text-lg">Huzaifa Institute AI</h3>
+          <p class="text-xs text-blue-200">Online | Real-time Agent</p>
+        </div>
+        <button onclick="toggleWidget()" class="text-white hover:text-gray-200 text-xl">&times;</button>
+      </div>
+
+      <!-- Mode Selector Tabs -->
+      <div class="flex border-b bg-gray-50">
+        <button id="chatTab" onclick="setMode('chat')" class="flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600">💬 Chat</button>
+        <button id="voiceTab" onclick="setMode('voice')" class="flex-1 py-2 text-center text-sm font-semibold text-gray-500">🎤 Voice Mode</button>
+      </div>
+
+      <!-- Message History Logs -->
+      <div id="chatLogs" class="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 text-sm">
+        <div class="bg-blue-100 text-blue-900 p-3 rounded-lg text-left max-w-[85%]">
+          Hello! Welcome to Huzaifa Institute. Voice tab par click karke baat karein ya text likhein!
+        </div>
+      </div>
+
+      <!-- Status Bar -->
+      <div id="voiceStatus" class="hidden bg-red-100 text-red-600 px-4 py-1 text-xs text-center font-semibold animate-pulse">
+        🎙️ Listening... Bolna shuru karein!
+      </div>
+
+      <!-- Chat Input Field -->
+      <div class="p-3 border-t flex gap-2 bg-white">
+        <input type="text" id="userInput" placeholder="Type a message..." class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" onkeypress="handleKeyPress(event)">
+        <button onclick="sendTextMessage()" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700">Send</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let recognition;
+    let isVoiceActive = false;
+
+    // Speech Recognition Setup
+    function initSpeech() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Aapka browser Speech Recognition support nahi karta. Google Chrome use karein!");
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = 'ur-PK';
+      recognition.continuous = false;
+
+      recognition.onresult = (event) => {
+        document.getElementById('voiceStatus').classList.add('hidden');
+        const transcript = event.results[0][0].transcript;
+        addLog('User', transcript);
+        socket.emit('user_speak', { text: transcript });
+      };
+
+      recognition.onerror = () => {
+        document.getElementById('voiceStatus').classList.add('hidden');
+      };
+
+      recognition.onend = () => {
+        document.getElementById('voiceStatus').classList.add('hidden');
+      };
+    }
+
+    // Text-To-Speech (AI Reply Output)
+    function speakText(text) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'hi-IN';
+      utterance.rate = 0.95;
+
+      // AI Response Bolne ke baad Mic Dobara Restart Hoga (Continuous Flow)
+      utterance.onend = () => {
+        if (isVoiceActive && recognition) {
+          setTimeout(() => {
+            document.getElementById('voiceStatus').classList.remove('hidden');
+            recognition.start();
+          }, 500);
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Socket Event - Receive AI Reply
+    socket.on('agent_reply', (data) => {
+      addLog('AI', data.reply);
+      speakText(data.reply);
+    });
+
+    // UI Toggle & Modes
+    function toggleWidget() {
+      document.getElementById('widgetModal').classList.toggle('hidden');
+    }
+
+    function setMode(mode) {
+      const chatTab = document.getElementById('chatTab');
+      const voiceTab = document.getElementById('voiceTab');
+
+      if (mode === 'voice') {
+        isVoiceActive = true;
+        voiceTab.className = "flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
+        chatTab.className = "flex-1 py-2 text-center text-sm font-semibold text-gray-500";
+        initSpeech();
+        
+        const welcomeText = "Welcome to Huzaifa Institute! Aapko kis course ke baare mein jaanna hai?";
+        addLog('AI', welcomeText);
+        speakText(welcomeText);
+      } else {
+        isVoiceActive = false;
+        window.speechSynthesis.cancel();
+        chatTab.className = "flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
+        voiceTab.className = "flex-1 py-2 text-center text-sm font-semibold text-gray-500";
+      }
+    }
+
+    function sendTextMessage() {
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      addLog('User', text);
+      socket.emit('user_speak', { text: text });
+      input.value = '';
+    }
+
+    function handleKeyPress(e) {
+      if (e.key === 'Enter') sendTextMessage();
+    }
+
+    function addLog(sender, text) {
+      const logsContainer = document.getElementById('chatLogs');
+      const msgDiv = document.createElement('div');
+      
+      if (sender === 'AI') {
+        msgDiv.className = "bg-blue-100 text-blue-900 p-3 rounded-lg text-left max-w-[85%]";
+        msgDiv.innerHTML = `<strong>AI:</strong> ${text}`;
+      } else {
+        msgDiv.className = "bg-green-100 text-green-900 p-3 rounded-lg text-right ml-auto max-w-[85%]";
+        msgDiv.innerHTML = `<strong>You:</strong> ${text}`;
+      }
+
+      logsContainer.appendChild(msgDiv);
+      logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+  </script>
+</body>
+</html>
