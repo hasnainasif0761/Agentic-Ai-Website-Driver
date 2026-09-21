@@ -1,94 +1,154 @@
 import os
-import re
 import json
+import re
 import threading
-from google import genai
-from google.genai import types
-from database import courses_col, enrollments_col
-from models.schemas import enrollment_helper
-from services.email_service import send_owner_email
-from services.whatsapp import send_whatsapp_form
+import mysql.connector
+from dotenv import load_dotenv
+from groq import Groq
 
-# Gemini Client Setup
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-client_ai = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+load_dotenv()
 
-def process_agent_logic(user_text: str, session: dict) -> dict:
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+CONFIG_FILE = "active_sql_context.json"
+
+if GROQ_API_KEY:
+    print("[INIT] Groq API Key successfully detected.")
+    client_ai = Groq(api_key=GROQ_API_KEY)
+else:
+    print("[ERROR] GROQ_API_KEY is missing in .env file!")
+    client_ai = None
+
+# Save context to persistent JSON file
+def set_active_sql_context(host, port, user, password, selected_dbs, selected_tables):
+    config_data = {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "selected_dbs": selected_dbs,
+        "selected_tables": selected_tables
+    }
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config_data, f, indent=4)
+    print(f"[ACTIVE CONTEXT SAVED] DBs: {selected_dbs}, Tables: {selected_tables}")
+
+# Read active context dynamically
+def load_active_sql_context():
+    if not os.path.exists(CONFIG_FILE):
+        return {
+            "host": "", "port": 3306, "user": "", "password": "",
+            "selected_dbs": [], "selected_tables": {}
+        }
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[CONFIG LOAD ERROR]: {e}")
+        return {
+            "host": "", "port": 3306, "user": "", "password": "",
+            "selected_dbs": [], "selected_tables": {}
+        }
+
+def get_db_data_and_schema():
+    """Reads saved configuration and fetches schema & top 5 rows dynamically"""
+    config = load_active_sql_context()
+    
+    if not config["host"] or not config["selected_dbs"]:
+        return "Abhi koi MySQL Database select/train nahi kiya gaya dashboard se."
+
+    context_info = []
+    
+    try:
+        for db in config["selected_dbs"]:
+            context_info.append(f"\nDATABASE: {db}")
+            tables = config["selected_tables"].get(db, [])
+            
+            if not tables:
+                context_info.append("  (Poora database selection active hai, lekin koi specific table check nahi hai)")
+                continue
+
+            conn = mysql.connector.connect(
+                host=config["host"],
+                port=config["port"],
+                user=config["user"],
+                password=config["password"],
+                database=db
+            )
+            cursor = conn.cursor(dictionary=True)
+            
+            for tbl in tables:
+                # 1. Fetch Columns
+                cursor.execute(f"DESCRIBE `{tbl}`;")
+                cols = [row['Field'] for row in cursor.fetchall()]
+                context_info.append(f"  - Table '{tbl}' Columns: {', '.join(cols)}")
+                
+                # 2. Fetch Sample Data Rows
+                cursor.execute(f"SELECT * FROM `{tbl}` LIMIT 5;")
+                rows = cursor.fetchall()
+                if rows:
+                    context_info.append(f"    Data Samples (Rows): {rows}")
+                else:
+                    context_info.append("    Data Samples: (Table empty hai)")
+                
+            conn.close()
+    except Exception as e:
+        print(f"[SQL FETCH ERROR]: {e}")
+        return f"Database details fetch karne mein error aaya: {str(e)}"
+
+    return "\n".join(context_info)
+
+def clean_response(text: str) -> str:
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    if "Draft:" in text:
+        text = text.split("Draft:")[-1]
+    elif "Response:" in text:
+        text = text.split("Response:")[-1]
+    elif "Final Output:" in text:
+        text = text.split("Final Output:")[-1]
+    
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    cleaned_lines = [line for line in lines if not (line.startswith('-') or line.startswith('*') or 'Check constraints' in line or 'Acknowledge' in line)]
+        
+    final_text = " ".join(cleaned_lines) if cleaned_lines else text
+    return final_text.replace('"', '').replace('**', '').strip()
+
+def process_agent_logic(user_text: str, session: dict = None) -> dict:
     text = user_text.strip()
     
-    # 1. Phone Number Detection & Lead Generation Rule
-    phone_match = re.search(r'\d{10,11}', text)
-    if phone_match or session.get('step') == 'awaiting_phone':
-        phone = phone_match.group(0) if phone_match else re.sub(r'\D', '', text)
+    # Live Active Schema + Sample Data Injection
+    active_context_str = get_db_data_and_schema()
 
-        if len(phone) >= 10:
-            session['step'] = 'completed'
-            course = session.get('last_course', 'Web Development')
-
-            # DB Save
-            new_lead = enrollment_helper(phone, course)
-            enrollments_col.insert_one(new_lead)
-
-            # Trigger Email Alerts
-            threading.Thread(target=send_owner_email, args=(phone, course)).start()
-
-            # Trigger WhatsApp Automation (10 sec delay)
-            threading.Timer(10.0, send_whatsapp_form, args=(phone, course)).start()
-
-            return {
-                "reply": "Shukriya! Aapka registration process complete ho gaya hai. 10 seconds mein aapko WhatsApp par registration form mil jayega. Kya aapka koi aur sawal hai?",
-                "step": "completed"
-            }
-
-    # 2. Database se Fresh Courses ki Details Fetch Karein
-    available_courses = list(courses_col.find({}, {"_id": 0}))
-    courses_info = json.dumps(available_courses) if available_courses else "Web Development (4 months), App Development (3 months), AI Agentic Development (6 months)"
-
-    # 3. System Prompt (AI Training / Knowledge Base)
     system_instruction = f"""
-    Aap 'Huzaifa Institute' ke ek boht hi friendly, professional aur smart AI Receptionist hain.
-    Aapka naam 'Huzaifa AI' hai.
-    Aapko natural Roman Urdu (ya Hindi-English mixed) mein baat karni hai jaise Pakistan/India mein log aam tor par chat/voice par karte hain.
+    You are 'Huzaifa Institute' Smart AI Data Assistant.
+    Respond in friendly Roman Urdu / English.
 
-    INSTITUTE KNOWLEDGE BASE:
-    - Institute Name: Huzaifa Institute
-    - Location / Address: Main Campus Block 5, Gulshan-e-Iqbal, Karachi. (Google Maps par search kar sakte hain).
-    - Available Courses Data from Database: {courses_info}
-    - Admission Process: Jab user kisi course mein interest dikhaye ya enroll hona chahe, toh unse politely unka WhatsApp phone number maangein taake hum unhe form bhej sakein.
+    CURRENT CHECKED DATABASES & TABLES DATA FROM DASHBOARD:
+    {active_context_str}
 
-    RULES FOR RESPONSE:
-    1. Agar user greeting kare (hello, salam), toh warm welcome karein aur puchein ke aap unki kya madad kar sakte hain.
-    2. User ke har sawal ka point-to-point aur natural jawab dein. Static/repetitive baatein na karein.
-    3. Agar user course join karna chahe, toh unko bolein ke "Boht zabardast! Apka 11 digits ka WhatsApp number share kar dein taake hum registration details bhej sakein."
-    4. Apne jawabaat ko zyada lamba na karein (maximum 2-3 short sentences), kyunki yeh voice agent hai taake sunne mein aasan ho.
+    STRICT OUTPUT FORMAT RULES:
+    1. Direct Output ONLY. DO NOT write internal thinking, planning steps, bullet points, or analysis.
+    2. Respond directly to the user in 2-3 short, friendly sentences.
+    3. If asked about active databases/tables/data, answer based on the provided context above.
     """
 
-    # 4. Smart Gemini AI Call
     if client_ai:
         try:
-            response = client_ai.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=f"User History/Step: {session.get('step', 'start')}\nUser Said: {text}",
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.7,
-                )
+            chat_completion = client_ai.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": text}
+                ],
+                model="openai/gpt-oss-20b",
+                temperature=0.5,
+                max_tokens=200
             )
-            reply = response.text.strip()
             
-            # Smart context tracking
-            if "number" in reply.lower() or "whatsapp" in reply.lower():
-                session['step'] = 'awaiting_phone'
+            raw_reply = chat_completion.choices[0].message.content.strip()
+            reply = clean_response(raw_reply)
+            return {"reply": reply, "step": "active"}
 
-            return {
-                "reply": reply,
-                "step": session.get('step', 'active')
-            }
         except Exception as e:
-            print(f"[Gemini AI Error]: {e}")
+            print(f"[Groq Execution Error]: {e}")
+            return {"reply": f"Groq Query Error: {str(e)}", "step": "active"}
 
-    # Fallback response
-    return {
-        "reply": "Ji, main aapki Huzaifa Institute ke baare mein kya madad kar sakta hoon?",
-        "step": session.get('step', 'start')
-    }
+    return {"reply": "GROQ_API_KEY configure nahi hui hai (.env file check karein)."}

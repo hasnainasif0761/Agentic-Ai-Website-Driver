@@ -15,9 +15,9 @@ try:
     client = MongoClient(MONGO_URI)
     db = client['huzaifa_institute']
     
-    # Collections
-    courses_col = db['courses']
-    enrollments_col = db['enrollments']
+    # Collections (Variable names aligned with imports)
+    courses_collection = db['courses']
+    enrollments_collection = db['enrollments']
     
     print("[Python Agent] MongoDB Connected Successfully!")
 except Exception as e:

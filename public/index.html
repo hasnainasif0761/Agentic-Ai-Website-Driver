@@ -3,28 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Huzaifa Institute - AI Voice Assistant</title>
+  <title>Huzaifa Institute - AI Voice & Chat Assistant</title>
   <!-- Socket.io Library -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Gradient sphere background & animation */
+    .ai-orb {
+      background: radial-gradient(circle at 30% 30%, #60a5fa, #3b82f6 40%, #1d4ed8 70%, #0284c7 100%);
+      box-shadow: 0 0 40px rgba(59, 130, 246, 0.5);
+    }
+    .ai-orb-active {
+      animation: pulseGlow 2s infinite alternate;
+    }
+    @keyframes pulseGlow {
+      0% {
+        transform: scale(1);
+        box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+      }
+      100% {
+        transform: scale(1.08);
+        box-shadow: 0 0 60px rgba(59, 130, 246, 0.8), 0 0 90px rgba(14, 165, 233, 0.4);
+      }
+    }
+  </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
 
   <div class="text-center p-8">
     <h1 class="text-4xl font-bold text-gray-800 mb-4">Welcome to Huzaifa Institute</h1>
-    <p class="text-gray-600">Aapka Python AI Assistant bottom right screen par ready hai!</p>
+    <p class="text-gray-600">Aapka Smart AI Assistant ready hai!</p>
   </div>
 
   <!-- FLOATING WIDGET BUTTON -->
   <div class="fixed bottom-6 right-6 z-50">
     <button id="widgetBtn" onclick="toggleWidget()" class="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-2xl flex items-center gap-2 transition-transform transform hover:scale-105">
       <span class="text-2xl">🤖</span>
-      <span class="font-semibold text-sm">Ask AI / Voice</span>
+      <span class="font-semibold text-sm">Ask AI Assistant</span>
     </button>
 
     <!-- WIDGET MODAL POPUP -->
-    <div id="widgetModal" class="hidden absolute bottom-16 right-0 w-80 md:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[450px]">
+    <div id="widgetModal" class="hidden absolute bottom-16 right-0 w-80 md:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col h-[520px]">
       
       <!-- Header -->
       <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
@@ -32,31 +52,55 @@
           <h3 class="font-bold text-lg">Huzaifa Institute AI</h3>
           <p class="text-xs text-blue-200">Online | Real-time Agent</p>
         </div>
-        <button onclick="toggleWidget()" class="text-white hover:text-gray-200 text-xl">&times;</button>
+        <button onclick="toggleWidget()" class="text-white hover:text-gray-200 text-2xl font-bold">&times;</button>
       </div>
 
       <!-- Mode Selector Tabs -->
       <div class="flex border-b bg-gray-50">
-        <button id="chatTab" onclick="setMode('chat')" class="flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600">💬 Chat</button>
-        <button id="voiceTab" onclick="setMode('voice')" class="flex-1 py-2 text-center text-sm font-semibold text-gray-500">🎤 Voice Mode</button>
+        <button id="chatTab" onclick="switchTab('chat')" class="flex-1 py-3 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600 transition-colors">💬 Chat</button>
+        <button id="voiceTab" onclick="switchTab('voice')" class="flex-1 py-3 text-center text-sm font-semibold text-gray-500 transition-colors">📞 Voice Call</button>
       </div>
 
-      <!-- Message History Logs -->
-      <div id="chatLogs" class="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 text-sm">
-        <div class="bg-blue-100 text-blue-900 p-3 rounded-lg text-left max-w-[85%]">
-          Hello! Welcome to Huzaifa Institute. Voice tab par click karke baat karein ya text likhein!
+      <!-- ================= VOICE MODE INTERFACE (CENTER ORB + 2 BUTTONS) ================= -->
+      <div id="voiceSection" class="hidden flex-1 flex flex-col items-center justify-between p-6 bg-gradient-to-b from-white to-gray-50">
+        
+        <!-- Center Animated AI Sphere -->
+        <div class="flex-1 flex flex-col items-center justify-center gap-6 w-full">
+          <div id="aiOrb" class="ai-orb w-40 h-40 rounded-full flex items-center justify-center transition-all duration-500 relative">
+            <span class="text-white text-4xl">📞</span>
+          </div>
+          
+          <div class="text-center">
+            <p id="callStatusText" class="text-gray-700 font-semibold text-base">Click "Start Call" to talk with AI</p>
+            <p id="voiceMicStatus" class="text-xs text-red-500 font-medium mt-1 hidden animate-pulse">🎙️ Listening...</p>
+          </div>
+        </div>
+
+        <!-- Call Control Action Buttons -->
+        <div class="w-full flex gap-4 pt-4 border-t border-gray-100">
+          <button id="startCallBtn" onclick="startVoiceCall()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95">
+            <span>📞</span> Start Call
+          </button>
+          <button id="endCallBtn" onclick="endVoiceCall()" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 opacity-50 cursor-not-allowed" disabled>
+            <span>🚫</span> End Call
+          </button>
         </div>
       </div>
 
-      <!-- Status Bar -->
-      <div id="voiceStatus" class="hidden bg-red-100 text-red-600 px-4 py-1 text-xs text-center font-semibold animate-pulse">
-        🎙️ Listening... Bolna shuru karein!
-      </div>
+      <!-- ================= CHAT MODE INTERFACE (LOGS + INPUT) ================= -->
+      <div id="chatSection" class="flex-1 flex flex-col overflow-hidden">
+        <!-- Message History Logs -->
+        <div id="chatLogs" class="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 text-sm">
+          <div class="bg-blue-100 text-blue-900 p-3 rounded-2xl text-left max-w-[85%] shadow-sm">
+            Hello! Welcome to Huzaifa Institute.
+          </div>
+        </div>
 
-      <!-- Chat Input Field -->
-      <div class="p-3 border-t flex gap-2 bg-white">
-        <input type="text" id="userInput" placeholder="Type a message..." class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" onkeypress="handleKeyPress(event)">
-        <button onclick="sendTextMessage()" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700">Send</button>
+        <!-- Chat Input Field -->
+        <div class="p-3 border-t flex gap-2 bg-white">
+          <input type="text" id="userInput" placeholder="Type a message..." class="flex-1 border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" onkeypress="handleKeyPress(event)">
+          <button onclick="sendTextMessage()" class="bg-blue-600 text-white px-5 py-2 rounded-xl font-semibold text-sm hover:bg-blue-700 transition-colors">Send</button>
+        </div>
       </div>
 
     </div>
@@ -65,7 +109,8 @@
   <script>
     const socket = io();
     let recognition;
-    let isVoiceActive = false;
+    let currentMode = 'chat'; 
+    let isCallActive = false;
 
     // Speech Recognition Setup
     function initSpeech() {
@@ -80,34 +125,37 @@
       recognition.continuous = false;
 
       recognition.onresult = (event) => {
-        document.getElementById('voiceStatus').classList.add('hidden');
+        document.getElementById('voiceMicStatus').classList.add('hidden');
         const transcript = event.results[0][0].transcript;
-        addLog('User', transcript);
         socket.emit('user_speak', { text: transcript });
       };
 
       recognition.onerror = () => {
-        document.getElementById('voiceStatus').classList.add('hidden');
+        document.getElementById('voiceMicStatus').classList.add('hidden');
       };
 
       recognition.onend = () => {
-        document.getElementById('voiceStatus').classList.add('hidden');
+        document.getElementById('voiceMicStatus').classList.add('hidden');
       };
     }
 
-    // Text-To-Speech (AI Reply Output)
+    initSpeech();
+
+    // Text-To-Speech (AI Voice Output)
     function speakText(text) {
       window.speechSynthesis.cancel();
+
+      if (!isCallActive || currentMode !== 'voice') return;
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'hi-IN';
       utterance.rate = 0.95;
 
-      // AI Response Bolne ke baad Mic Dobara Restart Hoga (Continuous Flow)
       utterance.onend = () => {
-        if (isVoiceActive && recognition) {
+        if (isCallActive && currentMode === 'voice' && recognition) {
           setTimeout(() => {
-            document.getElementById('voiceStatus').classList.remove('hidden');
-            recognition.start();
+            document.getElementById('voiceMicStatus').classList.remove('hidden');
+            try { recognition.start(); } catch(e){}
           }, 500);
         }
       };
@@ -117,35 +165,94 @@
 
     // Socket Event - Receive AI Reply
     socket.on('agent_reply', (data) => {
-      addLog('AI', data.reply);
-      speakText(data.reply);
+      if (currentMode === 'chat') {
+        addLog('AI', data.reply);
+      } else if (currentMode === 'voice' && isCallActive) {
+        document.getElementById('callStatusText').innerText = "AI is Speaking...";
+        speakText(data.reply);
+      }
     });
 
-    // UI Toggle & Modes
+    // UI Toggle & Tabs
     function toggleWidget() {
       document.getElementById('widgetModal').classList.toggle('hidden');
     }
 
-    function setMode(mode) {
+    function switchTab(mode) {
+      currentMode = mode;
       const chatTab = document.getElementById('chatTab');
       const voiceTab = document.getElementById('voiceTab');
+      const voiceSection = document.getElementById('voiceSection');
+      const chatSection = document.getElementById('chatSection');
 
       if (mode === 'voice') {
-        isVoiceActive = true;
-        voiceTab.className = "flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
-        chatTab.className = "flex-1 py-2 text-center text-sm font-semibold text-gray-500";
-        initSpeech();
+        voiceTab.className = "flex-1 py-3 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600 transition-colors";
+        chatTab.className = "flex-1 py-3 text-center text-sm font-semibold text-gray-500 transition-colors";
         
-        const welcomeText = "Welcome to Huzaifa Institute! Aapko kis course ke baare mein jaanna hai?";
-        addLog('AI', welcomeText);
-        speakText(welcomeText);
+        voiceSection.classList.remove('hidden');
+        chatSection.classList.add('hidden');
       } else {
-        isVoiceActive = false;
-        window.speechSynthesis.cancel();
-        chatTab.className = "flex-1 py-2 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600";
-        voiceTab.className = "flex-1 py-2 text-center text-sm font-semibold text-gray-500";
+        if (isCallActive) endVoiceCall();
+
+        chatTab.className = "flex-1 py-3 text-center text-sm font-semibold border-b-2 border-blue-600 text-blue-600 transition-colors";
+        voiceTab.className = "flex-1 py-3 text-center text-sm font-semibold text-gray-500 transition-colors";
+        
+        chatSection.classList.remove('hidden');
+        voiceSection.classList.add('hidden');
       }
     }
+
+    // VOICE CALL CONTROLS
+
+    function startVoiceCall() {
+      isCallActive = true;
+
+      const startBtn = document.getElementById('startCallBtn');
+      const endBtn = document.getElementById('endCallBtn');
+      const aiOrb = document.getElementById('aiOrb');
+      const callStatusText = document.getElementById('callStatusText');
+
+      startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      startBtn.disabled = true;
+
+      endBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      endBtn.disabled = false;
+
+      // Add Glowing Animation to Sphere
+      aiOrb.classList.add('ai-orb-active');
+      callStatusText.innerText = "Connecting Call...";
+
+      const greeting = "Hello! Call connect ho gayi hai. Huzaifa Institute ke baare mein kya poochna chahte hain?";
+      speakText(greeting);
+    }
+
+    function endVoiceCall() {
+      isCallActive = false;
+
+      window.speechSynthesis.cancel();
+      if (recognition) {
+        try { recognition.stop(); } catch(e){}
+      }
+
+      document.getElementById('voiceMicStatus').classList.add('hidden');
+
+      const startBtn = document.getElementById('startCallBtn');
+      const endBtn = document.getElementById('endCallBtn');
+      const aiOrb = document.getElementById('aiOrb');
+      const callStatusText = document.getElementById('callStatusText');
+
+      startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      startBtn.disabled = false;
+
+      endBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      endBtn.disabled = true;
+
+      // Remove Glowing Animation
+      aiOrb.classList.remove('ai-orb-active');
+      callStatusText.innerText = "Call Ended";
+    }
+
+    // CHAT MODE FUNCTIONS
 
     function sendTextMessage() {
       const input = document.getElementById('userInput');
@@ -166,10 +273,10 @@
       const msgDiv = document.createElement('div');
       
       if (sender === 'AI') {
-        msgDiv.className = "bg-blue-100 text-blue-900 p-3 rounded-lg text-left max-w-[85%]";
+        msgDiv.className = "bg-blue-100 text-blue-900 p-3 rounded-2xl text-left max-w-[85%] shadow-sm";
         msgDiv.innerHTML = `<strong>AI:</strong> ${text}`;
       } else {
-        msgDiv.className = "bg-green-100 text-green-900 p-3 rounded-lg text-right ml-auto max-w-[85%]";
+        msgDiv.className = "bg-green-100 text-green-900 p-3 rounded-2xl text-right ml-auto max-w-[85%] shadow-sm";
         msgDiv.innerHTML = `<strong>You:</strong> ${text}`;
       }
 
