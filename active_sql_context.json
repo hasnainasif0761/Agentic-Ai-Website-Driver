@@ -1,14 +1,113 @@
 {
-    "host": "localhost",
-    "port": 3306,
-    "user": "root",
-    "password": "",
     "selected_dbs": [
-        "inventry_db"
+        "huzaifadb",
+        "Bench4",
+        "Airline",
+        "Dallas"
     ],
     "selected_tables": {
-        "inventry_db": [
+        "huzaifadb": [
+            "bill_items",
+            "categories",
+            "courses",
+            "customers",
+            "dine_in_orders",
+            "invoice_items",
+            "invoices",
+            "menu",
+            "order",
+            "ordered",
+            "orders",
+            "payments",
+            "placeorder",
+            "printed_items",
+            "product",
+            "producte",
+            "products",
+            "resturant_menu",
+            "ride_in_orders",
+            "sales",
+            "students",
+            "table1",
+            "take_away_orders",
             "users"
+        ],
+        "Bench4": [
+            "Employees",
+            "Products",
+            "bill_of_materials",
+            "cars",
+            "comp_adaptor",
+            "comp_boss",
+            "comp_elbow",
+            "comp_float",
+            "comp_hfl",
+            "comp_nut",
+            "comp_other",
+            "comp_sleeve",
+            "comp_straight",
+            "comp_tee",
+            "comp_threaded",
+            "components",
+            "spec",
+            "target",
+            "trains",
+            "tube",
+            "tube_end_form",
+            "type_component",
+            "type_connection",
+            "type_end_form"
+        ],
+        "Airline": [
+            "L_AIRLINE_ID",
+            "L_AIRPORT",
+            "L_AIRPORT_ID",
+            "L_AIRPORT_SEQ_ID",
+            "L_CANCELLATION",
+            "L_CITY_MARKET_ID",
+            "L_DEPARRBLK",
+            "L_DISTANCE_GROUP_250",
+            "L_DIVERSIONS",
+            "L_MONTHS",
+            "L_ONTIME_DELAY_GROUPS",
+            "L_QUARTERS",
+            "L_STATE_ABR_AVIATION",
+            "L_STATE_FIPS",
+            "L_UNIQUE_CARRIERS",
+            "L_WEEKDAYS",
+            "L_WORLD_AREA_CODES",
+            "L_YESNO_RESP",
+            "On_Time_On_Time_Performance_2016_1"
+        ],
+        "Dallas": [
+            "incidents",
+            "subjects"
         ]
+    },
+    "connections": {
+        "huzaifadb": {
+            "host": "localhost",
+            "port": 3306,
+            "user": "root",
+            "password": ""
+        },
+        "Bench4": {
+            "host": "relational.fel.cvut.cz",
+            "port": 3306,
+            "user": "guest",
+            "password": "ctu-relational"
+        },
+        "Airline": {
+            "host": "relational.fel.cvut.cz",
+            "port": 3306,
+            "user": "guest",
+            "password": "ctu-relational"
+        },
+        "Dallas": {
+            "host": "relational.fel.cvut.cz",
+            "port": 3306,
+            "user": "guest",
+            "password": "ctu-relational"
+        }
     }
 }

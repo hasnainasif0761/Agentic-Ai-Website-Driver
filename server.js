@@ -8,13 +8,16 @@ const router = require('./routes/auth.route');
 const routerDash = require('./routes/dashboard.routes');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const Agentrouter = require('./routes/agentSetup.route');
+const publicRoutes = require('./routes/public.route');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
   }
 });
 
@@ -25,9 +28,10 @@ app.use(express.json());
 // Public folder se static html/css/js serve karein
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.use('/api/public', publicRoutes);
 app.use('/api/auth',router)
 app.use('/api/dashboard',routerDash)
-
+app.use('/api/agentDash/',Agentrouter)
 // Fallback Route for Frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

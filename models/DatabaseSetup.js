@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const DatabaseSetupSchema = new mongoose.Schema({
+    userId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        required: true, 
+        ref: 'User' 
+    },
     dbName: { type: String, required: true },
     host: { type: String, required: true },
     user: { type: String, required: true },

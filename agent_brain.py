@@ -1,21 +1,23 @@
 import os
 import json
 import re
-import threading
 import mysql.connector
 from dotenv import load_dotenv
-from groq import Groq
+from openai import OpenAI
 
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CONFIG_FILE = "active_sql_context.json"
 
-if GROQ_API_KEY:
-    print("[INIT] Groq API Key successfully detected.")
-    client_ai = Groq(api_key=GROQ_API_KEY)
+if OPENROUTER_API_KEY:
+    print("[INIT] OpenRouter API Key successfully detected.")
+    client_ai = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
 else:
-    print("[ERROR] GROQ_API_KEY is missing in .env file!")
+    print("[ERROR] OpenRouter API key is missing in .env file!")
     client_ai = None
 
 # Save context to persistent JSON file
@@ -50,43 +52,54 @@ def load_active_sql_context():
         }
 
 def get_db_data_and_schema():
-    """Reads saved configuration and fetches schema & top 5 rows dynamically"""
     config = load_active_sql_context()
     
-    if not config["host"] or not config["selected_dbs"]:
-        return "Abhi koi MySQL Database select/train nahi kiya gaya dashboard se."
+    if not config.get("selected_dbs"):
+        return "Abhi koi MySQL Database select nahi kiya gaya dashboard se."
 
     context_info = []
+    connections = config.get("connections", {})
     
     try:
         for db in config["selected_dbs"]:
             context_info.append(f"\nDATABASE: {db}")
-            tables = config["selected_tables"].get(db, [])
+            tables = config.get("selected_tables", {}).get(db, [])
             
+            # Har Database ka apna connection detail load karein
+            db_conn_info = connections.get(db, {})
+            
+            host = db_conn_info.get("host", config.get("host"))
+            port = db_conn_info.get("port", config.get("port", 3306))
+            user = db_conn_info.get("user", config.get("user"))
+            password = db_conn_info.get("password", config.get("password", ""))
+
             if not tables:
-                context_info.append("  (Poora database selection active hai, lekin koi specific table check nahi hai)")
+                context_info.append("  (Koi table select nahi hai)")
                 continue
 
             conn = mysql.connector.connect(
-                host=config["host"],
-                port=config["port"],
-                user=config["user"],
-                password=config["password"],
+                host=host,
+                port=port,
+                user=user,
+                password=password,
                 database=db
             )
             cursor = conn.cursor(dictionary=True)
             
             for tbl in tables:
-                # 1. Fetch Columns
                 cursor.execute(f"DESCRIBE `{tbl}`;")
                 cols = [row['Field'] for row in cursor.fetchall()]
                 context_info.append(f"  - Table '{tbl}' Columns: {', '.join(cols)}")
                 
-                # 2. Fetch Sample Data Rows
-                cursor.execute(f"SELECT * FROM `{tbl}` LIMIT 5;")
+                # Fetch Sample Data Rows (LIMIT 2)
+                cursor.execute(f"SELECT * FROM `{tbl}` LIMIT 2;")
                 rows = cursor.fetchall()
                 if rows:
-                    context_info.append(f"    Data Samples (Rows): {rows}")
+                    clean_rows = []
+                    for row in rows:
+                        clean_row = {k: (str(v)[:50] + "..." if isinstance(v, str) and len(str(v)) > 50 else v) for k, v in row.items()}
+                        clean_rows.append(clean_row)
+                    context_info.append(f"    Data Samples (Rows): {clean_rows}")
                 else:
                     context_info.append("    Data Samples: (Table empty hai)")
                 
@@ -134,13 +147,17 @@ def process_agent_logic(user_text: str, session: dict = None) -> dict:
     if client_ai:
         try:
             chat_completion = client_ai.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "http://localhost:3000",
+                    "X-Title": "Huzaifa Institute Agent",
+                },
+                model="deepseek/deepseek-chat",
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": text}
                 ],
-                model="openai/gpt-oss-20b",
                 temperature=0.5,
-                max_tokens=200
+                max_tokens=300
             )
             
             raw_reply = chat_completion.choices[0].message.content.strip()
@@ -148,7 +165,7 @@ def process_agent_logic(user_text: str, session: dict = None) -> dict:
             return {"reply": reply, "step": "active"}
 
         except Exception as e:
-            print(f"[Groq Execution Error]: {e}")
-            return {"reply": f"Groq Query Error: {str(e)}", "step": "active"}
+            print(f"[OpenRouter Execution Error]: {e}")
+            return {"reply": f"OpenRouter Query Error: {str(e)}", "step": "active"}
 
-    return {"reply": "GROQ_API_KEY configure nahi hui hai (.env file check karein)."}
+    return {"reply": "OpenRouter API Key initialize nahi ho saki.", "step": "error"}

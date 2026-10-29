@@ -3,18 +3,20 @@ const Groq = require("groq-sdk");
 const DatabaseSetup = require('../models/DatabaseSetup'); 
 const fs = require('fs');
 const path = require('path');
+const xlsx = require('xlsx');
+const axios = require('axios');
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Database connection and table fetch handler
 const connectDatabase = async (req, res) => {
     try {
-        const { host, port, user, password, database } = req.body;
+        const { host, user, database } = req.body;
 
         if (!host || !user || !database) {
             return res.status(400).json({ message: "Host, user, and database fields are required." });
         }
 
-        // Yahan aap live ya local MySQL/PostgreSQL connection establish kar sakte hain.
-        // Mocking table fetch response:
         const dummyTables = ["users", "orders", "products", "transactions", "logs"];
 
         return res.status(200).json({
@@ -26,10 +28,6 @@ const connectDatabase = async (req, res) => {
         return res.status(500).json({ message: "Failed to connect to database." });
     }
 };
-
-
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // 1. Fetch Databases List
 const fetchDatabases = async (req, res) => {
@@ -67,13 +65,128 @@ const fetchTables = async (req, res) => {
     }
 };
 
-// 3. Save Selected Database & Tables with full Rows & Columns data to MongoDB
-// 3. Save Selected Database & Tables with full Rows & Columns data
+// 3. Save Selected Database & Tables (User Isolated)
 const saveDatabaseSetup = async (req, res) => {
     let connection;
     try {
-        const { host, port, user, password, database, selectedTables } = req.body;
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: "Unauthorized access. Please login first." });
+        }
 
+        const userId = req.user.id;
+        const { host, port, user, password, database, selectedTables, dataSourceType, googleSheetUrl } = req.body;
+
+        // 1. Agar User ne EXCEL FILE Upload ki hai (req.file exist karta hai)
+        if (req.file) {
+            // Memory Buffer se Excel file read karein
+            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            const tablesData = [];
+
+            workbook.SheetNames.forEach(sheetName => {
+                const sheet = workbook.Sheets[sheetName];
+                // Excel Sheet ko JSON Objects Array mein convert karein
+                const rowsJson = xlsx.utils.sheet_to_json(sheet);
+
+                if (rowsJson.length > 0) {
+                    // Dynamic Columns (Employee Salary Sheet ke actual Headers)
+                    const columns = Object.keys(rowsJson[0]);
+
+                    tablesData.push({
+                        tableName: sheetName,
+                        columns: columns,
+                        rowsData: rowsJson
+                    });
+                }
+            });
+
+            if (tablesData.length === 0) {
+                return res.status(400).json({ message: "Uploaded Excel sheet is empty." });
+            }
+
+            const newSetup = await DatabaseSetup.create({
+                userId,
+                dbName: req.file.originalname,
+                host: "Uploaded Excel File",
+                user: req.user.name || "User",
+                tables: tablesData,
+                totalTablesCount: tablesData.length
+            });
+
+            return res.status(200).json({
+                message: "Excel File Data Successfully Parsed & Saved to MongoDB!",
+                setupId: newSetup._id,
+                savedData: newSetup
+            });
+        }
+
+        // 2. Agar Google Sheet URL hai (Handling)
+        // controllers/dashboard.controller.js -> saveDatabaseSetup function ke andar:
+
+if (dataSourceType === 'googlesheet' && googleSheetUrl) {
+    try {
+        // 1. Spreadsheet ID extract karein URL me se
+        const match = googleSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        
+        if (!match || !match[1]) {
+            return res.status(400).json({ message: "Invalid Google Sheet URL format." });
+        }
+
+        const sheetId = match[1];
+        // Direct CSV export link format
+        const csvExportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+
+        // 2. Fetch CSV Data from Google
+        const response = await axios.get(csvExportUrl, { 
+            responseType: 'arraybuffer',
+            headers: {
+                'User-Agent': 'Mozilla/5.0'
+            }
+        });
+        
+        // 3. Parse CSV data using XLSX library
+        const workbook = xlsx.read(response.data, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rowsJson = xlsx.utils.sheet_to_json(sheet);
+
+        if (!rowsJson || rowsJson.length === 0) {
+            return res.status(400).json({ message: "Google Sheet is empty or unreadable." });
+        }
+
+        // Dynamically extract columns from the first row
+        const columns = Object.keys(rowsJson[0]);
+
+        const tablesData = [{
+            tableName: "Sheet1_Data",
+            columns: columns,
+            rowsData: rowsJson
+        }];
+
+        // 4. Save isolated data to MongoDB
+        const newSetup = await DatabaseSetup.create({
+            userId,
+            dbName: `GoogleSheet_${sheetId.substring(0, 8)}`,
+            host: "Live Google Sheet",
+            user: req.user.name || "User",
+            tables: tablesData,
+            totalTablesCount: 1
+        });
+
+        return res.status(200).json({
+            message: "Google Sheet Data Successfully Parsed & Saved to User Profile!",
+            setupId: newSetup._id,
+            savedData: newSetup
+        });
+
+    } catch (err) {
+        console.error("Google Sheet Sync Error:", err.message);
+        return res.status(500).json({ 
+            message: "Failed to download Google Sheet. Make sure the Sheet Access is set to 'Anyone with the link can view'." 
+        });
+    }
+}
+
+        // 3. Agar SQL Server Database hai
         if (!selectedTables || selectedTables.length === 0) {
             return res.status(400).json({ message: "Select at least one table." });
         }
@@ -96,8 +209,8 @@ const saveDatabaseSetup = async (req, res) => {
             });
         }
 
-        // 1. Save or update in MongoDB
         const newSetup = await DatabaseSetup.create({
+            userId,
             dbName: database,
             host,
             user,
@@ -105,52 +218,43 @@ const saveDatabaseSetup = async (req, res) => {
             totalTablesCount: tablesData.length
         });
 
-        // 2. [FIX] Write to active_sql_context.json for Python Agent!
-        const selectedTablesObj = {};
-        selectedTablesObj[database] = selectedTables;
-
-        const activeConfig = {
-            host: host,
-            port: Number(port) || 3306,
-            user: user,
-            password: password || '',
-            selected_dbs: [database],
-            selected_tables: selectedTablesObj
-        };
-
-        const configPath = path.join(__dirname, '../active_sql_context.json'); // Apne path ke hisab se adjust karein
-        fs.writeFileSync(configPath, JSON.stringify(activeConfig, null, 4));
-
-        console.log("[CONTEXT UPDATED] active_sql_context.json file created successfully!");
-
         return res.status(200).json({
-            message: "Database & Table Structure synced to MongoDB and Python Context File!",
+            message: "SQL Database Setup Saved Successfully!",
             setupId: newSetup._id,
             savedData: newSetup
         });
 
     } catch (error) {
+        console.error("Sync Error:", error);
         return res.status(500).json({ message: `Sync Failed: ${error.message}` });
     } finally {
         if (connection) await connection.end();
     }
 };
 
-// 4. Fetch Recent Saved Setups for View Tab
+// 4. Fetch Recent Saved Setups (Strictly User Specific)
 const getRecentSetups = async (req, res) => {
     try {
-        const recentSetups = await DatabaseSetup.find().sort({ createdAt: -1 }).limit(10);
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: "Unauthorized access." });
+        }
+
+        const recentSetups = await DatabaseSetup.find({ userId: req.user.id }).sort({ createdAt: -1 }).limit(10);
         return res.status(200).json({ setups: recentSetups });
     } catch (error) {
         return res.status(500).json({ message: error.message });
     }
 };
 
-// 5. Fetch Dashboard Overview Statistics
+// 5. Fetch Dashboard Stats (Strictly User Specific)
 const getDashboardStats = async (req, res) => {
     try {
-        const totalDatabases = await DatabaseSetup.distinct("dbName");
-        const allSetups = await DatabaseSetup.find();
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ message: "Unauthorized access." });
+        }
+        const userId = req.user.id;
+        const totalDatabases = await DatabaseSetup.distinct("dbName", { userId });
+        const allSetups = await DatabaseSetup.find({ userId });
         
         let totalTables = 0;
         let totalRows = 0;
@@ -162,7 +266,6 @@ const getDashboardStats = async (req, res) => {
             });
         });
 
-        // Find Most Used Database
         const mostUsed = totalDatabases.length > 0 ? totalDatabases[0] : "N/A";
 
         return res.status(200).json({
@@ -177,7 +280,7 @@ const getDashboardStats = async (req, res) => {
     }
 };
 
-// 6. AI Agent Chat with full Schema & Local Context
+// 6. AI Agent Chat
 const handleAgentChat = async (req, res) => {
     try {
         const { query, databaseContext } = req.body;
@@ -201,5 +304,4 @@ const handleAgentChat = async (req, res) => {
     }
 };
 
-
-module.exports = { connectDatabase, handleAgentChat ,saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables};
+module.exports = { connectDatabase, handleAgentChat, saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables };
