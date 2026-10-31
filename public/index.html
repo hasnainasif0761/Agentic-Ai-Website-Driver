@@ -262,8 +262,10 @@
 
   <!-- FLOATING WIDGET BUTTON -->
   <div class="fixed bottom-6 right-6 z-50">
-    <button id="widgetBtn" onclick="toggleWidget()" class="bg-gradient-to-r from-brandBlue to-brandCyan hover:opacity-90 text-white px-5 py-4 rounded-full shadow-2xl flex items-center gap-3 transition-transform transform hover:scale-105 active:scale-95">
-      <span class="text-2xl">🤖</span>
+    <button id="widgetBtn" onclick="toggleWidget()" class="bg-gradient-to-r from-brandBlue to-brandCyan hover:opacity-90 text-white px-5 py-2 rounded-full shadow-2xl flex items-center gap-3 transition-transform transform hover:scale-105 active:scale-95">
+          <div class="w-12 h-12 rounded-xl bg-brandBlue/10 border border-brandBlue/20 flex items-center justify-center  text-xl">
+            <i class="fa-solid fa-robot"></i>
+          </div>
       <span class="font-bold text-sm hidden sm:inline">Ask AI Assistant</span>
     </button>
 
@@ -316,7 +318,7 @@
         <!-- Message History Logs -->
         <div id="chatLogs" class="flex-1 p-4 overflow-y-auto space-y-3 text-sm">
           <div class="bg-slate-800 text-slate-200 p-3 rounded-2xl text-left max-w-[85%] shadow-sm border border-slate-700/50">
-            Hello! Welcome to Huzaifa Institute.
+            Hello! Welcome to Huzaifa Institute. How can I help you today?
           </div>
         </div>
 
@@ -331,16 +333,21 @@
   </div>
 
   <script>
-    const socket = io();
+    // 🟢 Connect to Socket.io (Optional fallback)
+    const socket = typeof io !== 'undefined' ? io() : null;
     let recognition;
     let currentMode = 'chat'; 
     let isCallActive = false;
+
+    // Direct Sales & Onboarding API Endpoint (Direct Route Connection)
+    const API_CHAT_URL = '/api/public/platform-sales-chat';
+
 
     // Speech Recognition Setup
     function initSpeech() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        alert("Aapka browser Speech Recognition support nahi karta. Google Chrome use karein!");
+        console.warn("Speech recognition support nahi hai browser mein.");
         return;
       }
 
@@ -348,10 +355,14 @@
       recognition.lang = 'ur-PK';
       recognition.continuous = false;
 
-      recognition.onresult = (event) => {
+      recognition.onresult = async (event) => {
         document.getElementById('voiceMicStatus').classList.add('hidden');
         const transcript = event.results[0][0].transcript;
-        socket.emit('user_speak', { text: transcript });
+        
+        if (transcript && transcript.trim() !== "") {
+          document.getElementById('callStatusText').innerText = "AI soch raha hai...";
+          await sendUserQuery(transcript);
+        }
       };
 
       recognition.onerror = () => {
@@ -378,6 +389,7 @@
       utterance.onend = () => {
         if (isCallActive && currentMode === 'voice' && recognition) {
           setTimeout(() => {
+            document.getElementById('callStatusText').innerText = "Suno aur bolo...";
             document.getElementById('voiceMicStatus').classList.remove('hidden');
             try { recognition.start(); } catch(e){}
           }, 500);
@@ -387,15 +399,37 @@
       window.speechSynthesis.speak(utterance);
     }
 
-    // Socket Event - Receive AI Reply
-    socket.on('agent_reply', (data) => {
-      if (currentMode === 'chat') {
-        addLog('AI', data.reply);
-      } else if (currentMode === 'voice' && isCallActive) {
-        document.getElementById('callStatusText').innerText = "AI is Speaking...";
-        speakText(data.reply);
+    // 🟢 Direct Backend Fetch Request (Direct Sales Router Connection)
+    async function sendUserQuery(userMessage) {
+      try {
+        const response = await fetch(API_CHAT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: userMessage })
+        });
+
+        const data = await response.json();
+        const replyText = data.reply || data.message || "Aap ka shukriya, abhi main response nahi bana pa raha.";
+
+        if (currentMode === 'chat') {
+          addLog('AI', replyText);
+        } else if (currentMode === 'voice' && isCallActive) {
+          document.getElementById('callStatusText').innerText = "AI Bol Raha hai...";
+          speakText(replyText);
+        }
+
+      } catch (error) {
+        console.error("Sales Chat API Error:", error);
+        const errorMsg = "Server connection issue hai, please dobara try karein.";
+        console.log("error",error)
+        if (currentMode === 'chat') {
+          addLog('AI', errorMsg);
+        } else if (currentMode === 'voice' && isCallActive) {
+          document.getElementById('callStatusText').innerText = "Connection Error";
+          speakText(errorMsg);
+        }
       }
-    });
+    }
 
     // UI Toggle & Tabs
     function toggleWidget() {
@@ -444,9 +478,9 @@
 
       // Add Glowing Animation to Sphere
       aiOrb.classList.add('ai-orb-active');
-      callStatusText.innerText = "Connecting Call...";
+      callStatusText.innerText = "Call Connect Ho Rahi Hai...";
 
-      const greeting = "Hello! Call connect ho gayi hai. Ape kya poochna chahte hain?";
+      const greeting = "Hello! Welcome to Huzaifa Institute. Call connect ho gayi hai, aap kya poochna chahte hain?";
       speakText(greeting);
     }
 
@@ -473,19 +507,20 @@
 
       // Remove Glowing Animation
       aiOrb.classList.remove('ai-orb-active');
-      callStatusText.innerText = "Call Ended";
+      callStatusText.innerText = "Call End Ho Gayi";
     }
 
     // CHAT MODE FUNCTIONS
 
-    function sendTextMessage() {
+    async function sendTextMessage() {
       const input = document.getElementById('userInput');
       const text = input.value.trim();
       if (!text) return;
 
       addLog('User', text);
-      socket.emit('user_speak', { text: text });
       input.value = '';
+
+      await sendUserQuery(text);
     }
 
     function handleKeyPress(e) {
@@ -508,15 +543,14 @@
       logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
+    // FAQs Accordion Script
     document.querySelectorAll('.faq-btn').forEach(button => {
       button.addEventListener('click', () => {
         const content = button.nextElementSibling;
         const icon = button.querySelector('.faq-icon');
 
-        // Toggle visibility
         content.classList.toggle('hidden');
         
-        // Rotate Icon
         if (content.classList.contains('hidden')) {
           icon.style.transform = 'rotate(0deg)';
         } else {

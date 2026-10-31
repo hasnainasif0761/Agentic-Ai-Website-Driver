@@ -43,43 +43,43 @@ router.post('/chat', async (req, res) => {
             return res.status(404).json({ success: false, message: "Agent not found" });
         }
 
-        // 1. User ki sari connected databases/sheets fetch karein (find use karna hai, findOne nahi)
-const dbSetups = await DatabaseSetup.find({ userId: agent.userId });
+        // 1. User ki sari connected databases/sheets fetch karein
+        const dbSetups = await DatabaseSetup.find({ userId: agent.userId });
 
-let dbContextString = "No database or Excel data connected.";
-if (dbSetups && dbSetups.length > 0) {
-    // Sari databases aur unki tables ko map karna
-    dbContextString = dbSetups.map(db => {
-        if (!db.tables || db.tables.length === 0) return '';
-        return db.tables.map(t => {
-            const rowsJson = JSON.stringify(t.rowsData || []);
-            return `Source DB: ${db.dbName} | Table/Sheet: ${t.tableName}\nColumns: ${t.columns.join(', ')}\nData Rows: ${rowsJson}`;
-        }).join('\n\n');
-    }).filter(Boolean).join('\n\n');
-}
+        let dbContextString = "No database or Excel data connected.";
+        if (dbSetups && dbSetups.length > 0) {
+            dbContextString = dbSetups.map(db => {
+                if (!db.tables || db.tables.length === 0) return '';
+                return db.tables.map(t => {
+                    const rowsJson = JSON.stringify(t.rowsData || []);
+                    return `Source DB: ${db.dbName} | Table/Sheet: ${t.tableName}\nColumns: ${t.columns.join(', ')}\nData Rows: ${rowsJson}`;
+                }).join('\n\n');
+            }).filter(Boolean).join('\n\n');
+        }
+
+        // Usage Limit Check
         const currentLimit = agent.usageLimit || 50;
         const currentUsed = agent.messagesUsed || 0;
 
         if (currentUsed >= currentLimit) {
             return res.status(403).json({
                 success: false,
-                reply: "⚠️ Message limit reached for this AI Agent. Please upgrade your plan."
+                reply: "⚠️ Message limit reached for this AI Agent. Please upgrade your plan.",
             });
         }
 
-        // Key resolution
-        const apiKey = (agent.apiKeyOption === 'own' && agent.customApiKey)
-            ? agent.customApiKey
-            : process.env.OPENROUTER_API_KEY;
+        // 🟢 2. User ki apni Custom API Key use karein
+        const apiKey = agent.customApiKey;
 
         if (!apiKey) {
-            return res.status(500).json({ success: false, message: "API key is missing on server." });
+            return res.status(400).json({ success: false, message: "No API key configured for this Agent." });
         }
-        const routesInfo = agent.routes && agent.routes.length > 0
-        ? agent.routes.map(r => `${r.routeName}: ${r.routePath}`).join(', ')
-        : "No specific navigation routes configured.";
 
-        // 🟢 2. System prompt mein database context add kar diya gaya hai
+        const routesInfo = agent.routes && agent.routes.length > 0
+            ? agent.routes.map(r => `${r.routeName}: ${r.routePath}`).join(', ')
+            : "No specific navigation routes configured.";
+
+        // System Prompt
         const systemPrompt = `You are a helpful AI assistant for "${agent.businessName}".
 Agent Name: ${agent.agentName}
 
@@ -95,14 +95,133 @@ ${routesInfo}
 INSTRUCTIONS:
 - Answer questions accurately using the provided business context and database/sheet records.
 - Do not use markdown symbols like bold asterisks or bullet dashes. Use clean plain text spacing.
-- Keep answers polite, concise, and helpful.`
-;
+- Keep answers polite, concise, and helpful.`;
 
-// OpenRouter Call
-const openRouterResponse = await axios.post(
+        // 🟢 3. Selected Model formatting (OpenRouter / Direct API Call)
+        // Agar aap OpenRouter use kar rahe hain toh model path `provider/model` hota hai
+        let targetModel = agent.selectedModel || "gpt-4o-mini";
+        if (agent.provider && !targetModel.includes('/')) {
+            targetModel = `${agent.provider}/${targetModel}`;
+        }
+
+        // OpenRouter Call (User की Key aur Selected Model ke sath)
+        let aiReply = "";
+
+        // 🟢 1. GROQ PROVIDER DIRECT CALL
+        if (agent.provider === 'groq') {
+            const groqResponse = await axios.post(
+                "https://api.groq.com/openai/v1/chat/completions", // 👈 Groq Native Endpoint
+                {
+                    model: agent.selectedModel || "llama-3.3-70b-versatile",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: message }
+                    ]
+                },
+                {
+                    headers: {
+                        "Authorization": `Bearer ${agent.customApiKey.trim()}`, // 👈 Groq Key (gsk_...)
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+            aiReply = groqResponse.data.choices[0].message.content;
+        } 
+
+        // 🟢 2. GEMINI PROVIDER DIRECT CALL
+        else if (agent.provider === 'gemini') {
+            const geminiModel = agent.selectedModel || "gemini-1.5-flash";
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${agent.customApiKey.trim()}`;
+            
+            const geminiResponse = await axios.post(
+                geminiUrl,
+                {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [{ text: `${systemPrompt}\n\nUser Question: ${message}` }]
+                        }
+                    ]
+                },
+                {
+                    headers: { "Content-Type": "application/json" }
+                }
+            );
+            aiReply = geminiResponse.data.candidates[0].content.parts[0].text;
+        } 
+
+        // 🟢 3. OPENAI / OPENROUTER DIRECT CALL
+        else {
+            const openAiResponse = await axios.post(
+                "https://api.openai.com/v1/chat/completions", // 👈 Agar direct OpenAI key hai
+                {
+                    model: agent.selectedModel || "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: message }
+                    ]
+                },
+                {
+                    headers: {
+                        "Authorization": `Bearer ${agent.customApiKey.trim()}`,
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+            aiReply = openAiResponse.data.choices[0].message.content;
+        }
+
+        // Message usage increment karein
+        agent.messagesUsed = (agent.messagesUsed || 0) + 1;
+        await agent.save();
+
+        return res.status(200).json({
+            success: true,
+            reply: aiReply,
+            messagesUsed: agent.messagesUsed
+        });
+
+    } catch (err) {
+        console.error("AI Model API Error:", err.response?.data || err.message);
+        // console.log("error ai res",err)
+        return res.status(500).json({
+            success: false,
+            message: err.response?.data?.error?.message || "AI Model service currently unavailable."
+        });
+    }
+});
+
+router.post('/platform-sales-chat', async (req, res) => {
+    try {
+        const { message } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ success: false, message: "Message is required" });
+        }
+
+        // System ki apni OpenAI API key `.env` file se uthayega
+        const apiKey = process.env.OPENROUTER_API_KEY;
+
+        if (!apiKey) {
+            return res.status(500).json({ success: false, message: "Platform OpenAI API key is missing on server." });
+        }
+
+        // 🟢 Powerful Sales & Trust-Building System Prompt
+const systemPrompt = `You are the friendly, professional sales and onboarding AI expert for our AI Agent Builder Platform.
+Your mission is to warmly welcome visitors (such as educational institute owners, academy leaders, and business owners) and guide them toward building a custom AI agent.
+
+STRICT RESPONSE RULES:
+- Keep your responses short, concise, and direct (maximum 2 to 3 crisp sentences). Never output long paragraphs or walls of text.
+- Be polite, welcoming, reassuring, and highly engaging.
+- Highlight key platform value in a quick line: quick setup with their own Database/Excel/Google Sheets using top models (OpenAI, Groq, Gemini).
+- Do not use markdown symbols like bold asterisks or bullet dashes. Use clean plain text spacing.
+- Always end with a short, inviting follow-up question to keep the conversation interactive.`;
+
+        // OpenAI Direct API Call (Using Platform's Central Key)
+        const openAiResponse = await axios.post(
             "https://openrouter.ai/api/v1/chat/completions",
             {
-                model: "openai/gpt-4o-mini", 
+                model: "gpt-4o-mini", // Aap chahay toh "gpt-4o" bhi kar sakte hain
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: message }
@@ -116,20 +235,19 @@ const openRouterResponse = await axios.post(
             }
         );
 
-        const aiReply = openRouterResponse.data.choices[0].message.content;
+        const aiReply = openAiResponse.data.choices[0].message.content;
 
         return res.status(200).json({
             success: true,
-            reply: aiReply,
-            messagesUsed: agent.messagesUsed
+            reply: aiReply
         });
 
     } catch (err) {
-        console.error("OpenRouter API Error:", err.response?.data || err.message);
+        console.error("Platform Sales Chat Error:", err.response?.data || err.message);
         
         return res.status(500).json({
             success: false,
-            message: err.response?.data?.error?.message || "AI Model service currently unavailable."
+            message: err.response?.data?.error?.message || "Sales AI service currently unavailable."
         });
     }
 });

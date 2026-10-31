@@ -208,7 +208,9 @@
     const widgetContainer = document.createElement('div');
     widgetContainer.id = 'nweb-widget-container';
     widgetContainer.innerHTML = `
-        <button id="nweb-widget-toggle-btn">💬</button>
+        <button id="nweb-widget-toggle-btn">
+           <img src="https://img.magnific.com/premium-psd/happy-robot-3d-ai-character-chat-bot-mascot-gpt-chatbot-icon-artificial-intelligence_95505-505.jpg?semt=ais_hybrid&w=740&q=80" alt="logo" width="100" style="width: 60px; border-radius: 50%;" />
+        </button>
         <div id="nweb-widget-box">
             <div class="nweb-header">
                 <span class="nweb-title" id="nweb-agent-name">AI Assistant</span>
@@ -310,6 +312,7 @@
                 return data.reply;
             }
         } catch (err) {
+            console.log(err)
             console.error(err);
         }
         return null;

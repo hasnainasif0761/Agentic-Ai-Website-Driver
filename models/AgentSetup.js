@@ -14,9 +14,10 @@ const AgentSetupSchema = new mongoose.Schema({
     excelFileName: { type: String, default: '' },
     selectedSheetsOrTables: [{ type: String }],
 
-    // API Key settings
-    apiKeyOption: { type: String, enum: ['own', 'system'], default: 'system' },
-    customApiKey: { type: String, default: '' },
+    // 🟢 New Provider & Model Settings (Purani apiKeyOption hata di gayi hai)
+    provider: { type: String, default: 'openai' },         // e.g. 'openai', 'groq', 'gemini'
+    selectedModel: { type: String, default: 'gpt-4o-mini' }, // e.g. 'llama-3.3-70b-versatile', 'gemini-1.5-flash'
+    customApiKey: { type: String, required: true },          // User ki apni API key (Required)
     
     // Custom Navigation Routes
     routes: [

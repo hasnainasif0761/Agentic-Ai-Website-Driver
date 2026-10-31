@@ -279,35 +279,44 @@
 
                         <div>
                             <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Agent Name</label>
-                            <input type="text" id="agentName" class="w-full px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Assistant" required>
+                            <input type="text" id="agentName" class="w-full focus:ring-2 focus:ring-blue-500 px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Assistant" required>
                         </div>
 
                         <div>
                             <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Business Name</label>
-                            <input type="text" id="businessName" class="w-full px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Institute" required>
+                            <input type="text" id="businessName" class="w-full focus:ring-2 focus:ring-blue-500 px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Institute" required>
                         </div>
 
                         <div>
                             <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Business Description (AI Training Context)</label>
-                            <textarea id="businessDescription" rows="4" class="w-full px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="Detail description about your courses, services, FAQs..." required></textarea>
+                            <textarea id="businessDescription" rows="4" class="w-full px-4 py-2.5 focus:ring-2 focus:ring-blue-500 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="Detail description about your courses, services, FAQs..." required></textarea>
+                        </div>
+                        <!-- Provider Selection -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">AI Provider</label>
+                            <select id="providerSelect" class="w-full p-2 rounded-lg bg-[#070B14] focus:ring-2 focus:ring-blue-500 border-none">
+                                <option value="openai">OpenAI</option>
+                                <option value="groq">Groq</option>
+                                <option value="gemini">Gemini</option>
+                            </select>
                         </div>
 
-                        <div>
-                            <label class="block text-sm font-semibold text-[#00B4D8] mb-2">OpenRouter / OpenAI API Key</label>
-                            <div class="flex gap-2 mb-3">
-                                <input type="password" id="customApiKey" class="flex-1 px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder disabled:bg-gray-800 disabled:text-gray-500" placeholder="sk-or-v1-...">
-                                <button type="button" onclick="window.open('https://openrouter.ai/keys', '_blank')" class="px-4 py-2.5 bg-[#00B4D8] text-white rounded-lg transition font-medium text-sm">
-                                    Get API Key
-                                </button>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <input type="checkbox" id="useOwnApiKeyCheck" onchange="toggleApiKeyInput()" class="w-4 h-4 text-blue-600 rounded border-gray-300">
-                                <label for="useOwnApiKeyCheck" class="text-sm text-[#00B4D8] select-none cursor-pointer">
-                                    Use System Default API Key
-                                </label>
-                            </div>
+                        <!-- Dynamic Model Selection -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">Select Model</label>
+                            <select id="modelSelect" class="w-full p-2 bg-[#070B14] rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option>Please Select Ai Provider</option>
+                            </select>
                         </div>
 
+                        <!-- Custom API Key Input -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">Enter Api Key</label>
+                            <input type="password" id="customApiKey" class="w-[80%] bg-[#070B14] border-none p-2 border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Enter API key for selected provider">
+                            <button class=" px-3 py-3 bg-[#00B4D8] text-white rounded-lg text-xs font-semibold cursor-not-allowed"  disabled >Request for Api Create</button>
+                            <!-- Error message display karne ke liye -->
+                            <small id="apiKeyError" class="text-red-500 text-xs mt-1 block"></small>
+                        </div>
                         <!-- Navigation Routes Section -->
                         <div>
                             <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Website Navigation Routes</label>
@@ -375,7 +384,7 @@
                     <i class="fa-solid fa-arrows-rotate mr-1"></i> Refresh List
                 </button>
             </div>
-
+            
             <div class="bg-brandCard border border-brandBorder rounded-2xl overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs text-slate-300">
@@ -639,6 +648,45 @@ const data = await res.json();
             alert(`AI Model successfully trained on [${currentDB}] context!`);
         }
 
+        // add Provider Functionality for Agents Models Selected Api key 
+            const modelsByProvider = {
+                openai: [
+                    "gpt-4o-mini", 
+                    "gpt-4o"
+                ],
+                groq: [
+                    "openai/gpt-oss-20b",    // Tez aur efficient tasks ke liye
+                    "openai/gpt-oss-120b",   // Heavy coding aur reasoning ke liye
+                    "qwen/qwen3.8-27b"       // Vision/Images aur thinking mode ke liye
+                ],
+                gemini: [
+                    "gemini-2.5-flash", 
+                    "gemini-2.5-pro"
+                ]
+            };
+
+
+            const providerSelect = document.getElementById('providerSelect');
+            const modelSelect = document.getElementById('modelSelect');
+
+            function updateModels() {
+                const provider = providerSelect.value;
+                modelSelect.innerHTML = '';
+                
+                if (modelsByProvider[provider]) {
+                    modelsByProvider[provider].forEach(model => {
+                        const opt = document.createElement('option');
+                        opt.value = model;
+                        opt.textContent = model;
+                        modelSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            providerSelect.addEventListener('change', updateModels);
+            // Page load hone par default models load karne ke liye
+            updateModels();
+
         // Agent Setup & Token Authentication Check
         async function checkExistingAgent() {
             const token = localStorage.getItem('token');
@@ -695,15 +743,16 @@ const data = await res.json();
                 if (routeName && routePath) routes.push({ routeName, routePath });
             });
 
-            const payload = {
-                agentId: document.getElementById('agentId').value,
-                agentName: document.getElementById('agentName').value,
-                businessName: document.getElementById('businessName').value,
-                businessDescription: document.getElementById('businessDescription').value,
-                apiKeyOption: document.getElementById('useOwnApiKeyCheck').checked ? 'system' : 'own',
-                customApiKey: document.getElementById('customApiKey').value,
-                routes: routes
-            };
+        const payload = {
+            agentId: document.getElementById('agentId').value,
+            agentName: document.getElementById('agentName').value,
+            businessName: document.getElementById('businessName').value,
+            businessDescription: document.getElementById('businessDescription').value,
+            provider: document.getElementById('providerSelect').value,       // 👈 Naya field (openai, groq, gemini)
+            selectedModel: document.getElementById('modelSelect').value,     // 👈 Naya field (selected model name)
+            customApiKey: document.getElementById('customApiKey').value,
+            routes: routes
+        };
 
             const token = localStorage.getItem('token');
             try {
@@ -712,14 +761,19 @@ const data = await res.json();
                     headers: { 
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}` 
-                     },
+                    },
                     body: JSON.stringify(payload)
                 });
                 const data = await res.json();
-                if (res.ok) {
-                    showCDNSection(data.agent);
+
+                if (!res.ok) {
+                    // Agar API key invalid ka error aaye toh usay error element mein show karein
+                    document.getElementById('apiKeyError').innerText = data.message || "Something went wrong!"; 
                 } else {
-                    alert(data.message || 'Error saving agent setup');
+                    alert(data.message);
+                    checkExistingAgent()
+                    window.location.reload();
+                    // Success hone par form reset ya redirecting logic yahan laga sakte hain
                 }
             } catch (err) {
                 alert('Server error occurred');
