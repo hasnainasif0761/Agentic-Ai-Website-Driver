@@ -784,7 +784,7 @@ const data = await res.json();
             document.getElementById('agentFormSection').classList.add('hidden');
             document.getElementById('agentCDNSection').classList.remove('hidden');
 
-            document.getElementById('cdnScriptText').value = `<script src="https://agentic-ai-website-driver-chi.vercel.app/widget.js" data-agent-id="${agent._id}" async><\/script>`;
+            document.getElementById('cdnScriptText').value = `<script src="https://agentic-ai-website-driver.vercel.app/widget.js" data-agent-id="${agent._id}" async><\/script>`;
             document.getElementById('planBadge').innerText = `Plan: ${agent.plan || 'Free Tier'}`;
             document.getElementById('messagesUsedCount').innerText = agent.messagesUsed || 0;
             document.getElementById('maxMessagesLimit').innerText = agent.usageLimit || 50;
