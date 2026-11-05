@@ -684,7 +684,7 @@
             window.location.href = "/authentication.html";
         };
 
-        const API_BASE = 'http://localhost:5000/api/dashboard';
+        const API_BASE = 'agentic-ai-website-driver.vercel.app/api/dashboard';
         let currentDB = localStorage.getItem('active_db') || "";
 
         function toggleDarkMode() {
@@ -1046,7 +1046,7 @@
                 if (navChatWorkspace) navChatWorkspace.style.display = 'flex';
                 if (navPlansTab) navPlansTab.style.display = 'none';
             }
-
+            
             renderAgentHeaderWidgets(agent);
         }
 
@@ -1110,7 +1110,7 @@
             const token = localStorage.getItem('token');
 
             try {
-                const res = await fetch('http://localhost:5000/api/dashboard/request-plan-upgrade', {
+                const res = await fetch('agentic-ai-website-driver.vercel.app/api/dashboard/request-plan-upgrade', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1199,7 +1199,7 @@
             document.getElementById('agentFormSection').classList.add('hidden');
             document.getElementById('agentCDNSection').classList.remove('hidden');
 
-            document.getElementById('cdnScriptText').value = `<script src="http://localhost:5000/widget.js" data-agent-id="${agent._id}" async><\/script>`;
+            document.getElementById('cdnScriptText').value = `<script src="agentic-ai-website-driver.vercel.app/widget.js" data-agent-id="${agent._id}" async><\/script>`;
             document.getElementById('planBadge').innerText = `Plan: ${agent.planType ? agent.planType.toUpperCase() : 'FREE'} Tier`;
             document.getElementById('messagesUsedCount').innerText = agent.messagesUsed || 0;
             document.getElementById('maxMessagesLimit').innerText = agent.usageLimit || 15;
@@ -1344,7 +1344,7 @@
         async function fetchEnterpriseChatAnalytics(agentId) {
             if (!agentId) return;
             try {
-                const res = await fetch(`http://localhost:5000/api/dashboard/chat-analytics/${agentId}`);
+                const res = await fetch(`agentic-ai-website-driver.vercel.app/api/dashboard/chat-analytics/${agentId}`);
                 const data = await res.json();
                 if (res.ok && data.sessions) {
                     document.getElementById('dashboard-avg-duration').innerText = `${data.avgDurationMinutes} mins`;
@@ -1394,7 +1394,7 @@
             
             try {
                 const token = localStorage.getItem('token');
-                const res = await fetch(`http://localhost:5000/api/dashboard/lead-history/${visitorId}`, {
+                const res = await fetch(`agentic-ai-website-driver.vercel.app/api/dashboard/lead-history/${visitorId}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
