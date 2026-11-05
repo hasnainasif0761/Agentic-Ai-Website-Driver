@@ -1,5 +1,5 @@
 const express = require('express');
-const { connectDatabase,saveDatabaseSetup,getRecentSetups,getDashboardStats, handleAgentChat,fetchDatabases, fetchTables } = require('../controller/dashboard.controller');
+const { connectDatabase,saveDatabaseSetup,approvedPlanFunc,planUpgradeFunc,getRecentSetups,getLeadHistoryByVisitor,chat_analytics,getDashboardStats,handleFetchdata, handleAgentChat,fetchDatabases, fetchTables } = require('../controller/dashboard.controller');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const multer = require('multer');
 
@@ -13,5 +13,10 @@ router.post('/fetch-tables', fetchTables);
 router.post('/save-setup',authMiddleware,upload.single('excelFile'), saveDatabaseSetup);
 router.get('/recent-setups',authMiddleware, getRecentSetups);
 router.get('/stats',authMiddleware, getDashboardStats);
+router.post('/fetch-sheet-columns', upload.single('excelFile'),handleFetchdata);
+router.get('/chat-analytics/:agentId',chat_analytics)
+router.get('/lead-history/:visitorId', authMiddleware, getLeadHistoryByVisitor);
+router.post('/request-plan-upgrade',authMiddleware,planUpgradeFunc)
+router.post('/admin/approve-plan/:agentId',approvedPlanFunc)
 
 module.exports = router;

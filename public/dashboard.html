@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,22 +8,38 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                    },
                     colors: {
-                        brandDark: '#070B14',
-                        brandCard: '#0F172A',
-                        brandBorder: '#1E293B',
                         nwebCyan: '#00B4D8',
                         nwebBlue: '#0077B6',
+                        lightBg: '#F8FAFC',
+                        lightCard: '#FFFFFF',
+                        lightBorder: '#E2E8F0',
+                        darkBg: '#070B14',
+                        darkCard: '#0F172A',
+                        darkBorder: '#1E293B'
                     }
                 }
             }
         }
         
         document.addEventListener('DOMContentLoaded', async () => {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+
             const token = localStorage.getItem("token");
             if (!token) {
                 alert("Unauthorized access! Please Login first.");
@@ -33,232 +49,330 @@
 
             const userData = JSON.parse(localStorage.getItem("user"));
             if (userData && document.getElementById('userNameDisplay')) {
-                document.getElementById('userNameDisplay').innerText = `Welcome Back ${userData.name}`;
+                document.getElementById('userNameDisplay').innerText = `Welcome Back, ${userData.name}`;
             }
 
-            // User-specific agent check on load
             await checkExistingAgent();
             initCharts();
             loadDashboardStats();
         });
     </script>
+    <style>
+        .tab-content { transition: opacity 0.3s ease, transform 0.3s ease; }
+        .tab-content.hidden { display: none; opacity: 0; transform: translateY(6px); }
+        .glass-panel { backdrop-filter: blur(12px); }
+    </style>
 </head>
-<body class="bg-brandDark text-slate-100 min-h-screen flex antialiased font-sans">
+<body class="bg-lightBg dark:bg-darkBg text-slate-800 dark:text-slate-100 min-h-screen flex flex-col md:flex-row antialiased font-sans transition-colors duration-300">
 
-    <!-- Sidebar Navigation -->
-    <aside class="w-72 bg-brandCard border-r border-brandBorder flex flex-col justify-between p-5 shrink-0">
+    <!-- Mobile Top Navigation Header -->
+    <header class="md:hidden flex items-center justify-between p-4 bg-lightCard dark:bg-darkCard border-b border-lightBorder dark:border-darkBorder sticky top-0 z-40">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-nwebBlue to-nwebCyan flex items-center justify-center text-white font-bold shadow-md shadow-nwebCyan/20">
+                <i class="fa-solid fa-brain text-lg"></i>
+            </div>
+            <span class="font-bold text-sm text-slate-900 dark:text-white">NWeb Intelligence</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="toggleDarkMode()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <i class="fa-solid fa-moon dark:hidden"></i>
+                <i class="fa-solid fa-sun hidden dark:block text-amber-400"></i>
+            </button>
+            <button onclick="toggleMobileSidebar()" class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <i class="fa-solid fa-bars text-lg"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Backdrop for Mobile Sidebar -->
+    <div id="sidebarBackdrop" onclick="toggleMobileSidebar()" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 hidden md:hidden"></div>
+
+    <!-- Responsive Sidebar Navigation -->
+    <aside id="mainSidebar" class="fixed md:static inset-y-0 left-0 z-50 w-72 bg-lightCard dark:bg-darkCard border-r border-lightBorder dark:border-darkBorder flex flex-col justify-between p-5 shrink-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none">
         <div>
-            <div class="flex items-center gap-3 mb-8 px-2">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-nwebBlue to-nwebCyan flex items-center justify-center text-white font-bold shadow-lg shadow-nwebCyan/20">
-                    <i class="fa-solid fa-brain text-xl"></i>
-                </div>
-                <div>
-                    <span class="font-bold text-base text-white block leading-none">NWeb Intelligence</span>
-                    <span class="text-[10px] text-nwebCyan font-semibold uppercase tracking-wider">Database Suite</span>
+            <div class="hidden md:flex items-center justify-between mb-8 px-2">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-nwebBlue to-nwebCyan flex items-center justify-center text-white font-bold shadow-lg shadow-nwebCyan/20">
+                        <i class="fa-solid fa-brain text-xl"></i>
+                    </div>
+                    <div>
+                        <span class="font-extrabold text-base text-slate-900 dark:text-white block leading-none">NWeb Console</span>
+                        <span class="text-[10px] text-nwebCyan font-bold uppercase tracking-wider">Enterprise Suite</span>
+                    </div>
                 </div>
             </div>
 
             <nav class="space-y-1.5">
-                <button onclick="switchTab('overview-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800 text-nwebCyan text-sm font-semibold transition">
+                <button id="nav-overview" onclick="switchTab('overview-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-nwebBlue dark:text-nwebCyan text-sm font-bold shadow-sm transition">
                     <i class="fa-solid fa-chart-pie w-5"></i> Dashboard Overview
                 </button>
-                <button onclick="switchTab('db-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm font-semibold transition">
+                <button id="nav-db-setup" onclick="switchTab('db-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition">
                     <i class="fa-solid fa-database w-5"></i> Database & Sheets Setup
                 </button>
-                <button onclick="switchTab('dbSetup', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm font-semibold transition">
+                <button id="nav-agent-gen" onclick="switchTab('dbSetup', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition">
                     <i class="fa-solid fa-robot w-5"></i> AI Agent Generator
                 </button>
-                <button onclick="switchTab('recent-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm font-semibold transition">
+                <button id="nav-recent-setups" onclick="switchTab('recent-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition">
                     <i class="fa-solid fa-clock-rotate-left w-5"></i> View Recent Setups
                 </button>
-                <button onclick="switchTab('agent-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm font-semibold transition">
-                    <i class="fa-solid fa-comments w-5"></i> AI Agent Chat Workspace
+                <button id="nav-chat-workspace" onclick="switchTab('agent-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition">
+                    <i class="fa-solid fa-comments w-5"></i> AI Chat Workspace
+                </button>
+                <!-- 🟢 NEW PLANS & UPGRADE TAB (Dynamically shown/hidden) -->
+                <button id="nav-plans-tab" onclick="switchTab('plans-tab', this)" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition">
+                    <i class="fa-solid fa-crown w-5 text-amber-500"></i> Plans & Billing
                 </button>
             </nav>
         </div>
 
-        <div class="pt-4 border-t border-brandBorder space-y-2">
-            <div class="px-3 py-2 bg-slate-900/60 rounded-xl border border-brandBorder/60">
-                <span class="text-[10px] text-slate-400 uppercase tracking-widest block font-medium">Model Status</span>
-                <span id="ai-model-status" class="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mt-1">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Ready / User Secured
+        <div class="pt-4 border-t border-lightBorder dark:border-darkBorder space-y-3">
+            <div class="flex items-center justify-between p-2.5 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-lightBorder dark:border-darkBorder">
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">Theme Mode</span>
+                <button onclick="toggleDarkMode()" class="px-3 py-1.5 rounded-lg bg-lightCard dark:bg-slate-800 text-xs font-bold shadow-sm border border-lightBorder dark:border-darkBorder flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                    <i class="fa-solid fa-sun text-amber-500 dark:hidden"></i>
+                    <i class="fa-solid fa-moon text-cyan-400 hidden dark:inline"></i>
+                    <span id="themeLabel">Light Mode</span>
+                </button>
+            </div>
+
+            <div class="px-3 py-2 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-lightBorder dark:border-darkBorder">
+                <span class="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest block font-bold">Model Status</span>
+                <span id="ai-model-status" class="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 mt-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Ready / User Secured
                 </span>
             </div>
         </div>
     </aside>
 
-    <!-- Main Content Area -->
-    <main class="flex-1 p-8 overflow-y-auto">
+    <!-- Main Content Container -->
+    <main class="flex-1 p-4 md:p-8 overflow-y-auto w-full">
+
+        <!-- 🟢 TOP PULSING ALERT BANNER (State Driven: Expired vs Pending Approval) -->
+        <div id="top-alert-banner" class="hidden mb-6 p-4 rounded-2xl border flex items-center justify-between animate-pulse">
+            <div class="flex items-center gap-3">
+                <i id="alert-banner-icon" class="fa-solid fa-triangle-exclamation text-xl"></i>
+                <div>
+                    <h4 class="font-bold text-sm" id="alert-banner-title">System Notice</h4>
+                    <p class="text-xs opacity-90" id="alert-banner-desc">Please take necessary action.</p>
+                </div>
+            </div>
+            <span class="text-xs font-mono font-bold px-3 py-1 rounded-lg" id="alert-badge-status">STATUS</span>
+        </div>
 
         <!-- 1. OVERVIEW TAB -->
         <section id="overview-tab" class="tab-content space-y-6">
-            <div class="flex justify-between items-center">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 class="text-2xl font-bold text-white" id="userNameDisplay"></h1>
-                    <p class="text-xs text-slate-400">Live operational stats and user-isolated database monitoring</p>
+                    <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight" id="userNameDisplay">Welcome Back</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Real-time enterprise metrics, active sessions & data monitoring</p>
                 </div>
-                <button onclick="logoutUser()" class="px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-semibold transition hover:bg-red-600">
-                    <i class="fa-solid fa-sign-out mr-1"></i> Logout Dashboard
+                <button onclick="logoutUser()" class="px-4 py-2 bg-red-500/10 hover:bg-red-500 text-red-600 hover:text-white border border-red-200 dark:border-red-900 rounded-xl text-xs font-bold transition shadow-sm">
+                    <i class="fa-solid fa-sign-out mr-1.5"></i> Logout
                 </button>
             </div>
 
-            <!-- 4 Metric Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl">
+            <!-- 6 Enterprise Metric Cards Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-400">Connected Sources</span>
-                        <div class="p-2 bg-nwebCyan/10 rounded-lg text-nwebCyan"><i class="fa-solid fa-server"></i></div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sources</span>
+                        <div class="p-2 bg-nwebCyan/10 rounded-xl text-nwebCyan"><i class="fa-solid fa-server"></i></div>
                     </div>
-                    <div class="text-2xl font-bold text-white mt-2" id="stat-connected-dbs">0</div>
-                    <span class="text-[10px] text-slate-500 mt-1 block">SQL or Google/Excel Sheets</span>
+                    <div class="text-2xl font-black text-slate-900 dark:text-white mt-2" id="stat-connected-dbs">0</div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">SQL / Sheets</span>
                 </div>
 
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl">
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-400">Total Tables Synced</span>
-                        <div class="p-2 bg-nwebBlue/10 rounded-lg text-nwebBlue"><i class="fa-solid fa-table"></i></div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tables</span>
+                        <div class="p-2 bg-nwebBlue/10 rounded-xl text-nwebBlue"><i class="fa-solid fa-table"></i></div>
                     </div>
-                    <div class="text-2xl font-bold text-white mt-2" id="stat-total-tables">0</div>
-                    <span class="text-[10px] text-slate-500 mt-1 block">Across all instances</span>
+                    <div class="text-2xl font-black text-slate-900 dark:text-white mt-2" id="stat-total-tables">0</div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Synced Instances</span>
                 </div>
 
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl">
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-400">Total Rows Processed</span>
-                        <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400"><i class="fa-solid fa-database"></i></div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Processed</span>
+                        <div class="p-2 bg-indigo-500/10 rounded-xl text-indigo-500"><i class="fa-solid fa-database"></i></div>
                     </div>
-                    <div class="text-2xl font-bold text-white mt-2" id="stat-total-rows">0</div>
-                    <span class="text-[10px] text-slate-500 mt-1 block">Secured in MongoDB</span>
+                    <div class="text-2xl font-black text-slate-900 dark:text-white mt-2" id="stat-total-rows">0</div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Total Rows</span>
                 </div>
 
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl">
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
                     <div class="flex justify-between items-start">
-                        <span class="text-xs font-semibold text-slate-400">Active Data Source</span>
-                        <div class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400"><i class="fa-solid fa-fire"></i></div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Source</span>
+                        <div class="p-2 bg-emerald-500/10 rounded-xl text-emerald-500"><i class="fa-solid fa-bolt"></i></div>
                     </div>
-                    <div class="text-xl font-bold text-emerald-400 mt-2 truncate" id="stat-most-used">N/A</div>
-                    <span class="text-[10px] text-slate-500 mt-1 block">High query throughput</span>
+                    <div class="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-2 truncate" id="stat-most-used">N/A</div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Primary Context</span>
+                </div>
+
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                    <div class="flex justify-between items-start">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Avg Duration</span>
+                        <div class="p-2 bg-purple-500/10 rounded-xl text-purple-500"><i class="fa-solid fa-stopwatch"></i></div>
+                    </div>
+                    <div class="text-2xl font-black text-slate-900 dark:text-white mt-2" id="stat-avg-duration">0s</div>
+                    <span class="text-[10px] text-emerald-500 font-bold mt-1 block">Dynamic from Sessions</span>
+                </div>
+
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-4 rounded-2xl shadow-sm hover:shadow-md transition">
+                    <div class="flex justify-between items-start">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Chats</span>
+                        <div class="p-2 bg-amber-500/10 rounded-xl text-amber-500"><i class="fa-solid fa-comments"></i></div>
+                    </div>
+                    <div class="text-2xl font-black text-slate-900 dark:text-white mt-2" id="stat-total-chats">0</div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">MongoDB Sessions</span>
                 </div>
             </div>
 
-            <!-- Charts Section -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl md:col-span-2">
-                    <h3 class="text-sm font-semibold text-slate-200 mb-4">Table Sync & Query Activity Trends</h3>
+            <!-- Live Visitor Locations & Chat Durations Table Section -->
+            <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl shadow-sm space-y-4 mt-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-black text-slate-900 dark:text-white">Live Visitor Locations & Chat Durations</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Strictly isolated per agent ID from MongoDB</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs bg-nwebCyan/10 text-nwebCyan px-3 py-1.5 rounded-xl font-bold">
+                            Average Chat Time: <span id="dashboard-avg-duration">0 mins</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                        <thead class="bg-slate-100 dark:bg-slate-900 text-slate-500 uppercase tracking-wider border-b border-lightBorder dark:border-darkBorder">
+                            <tr>
+                                <th class="p-3.5">Visitor Session ID</th>
+                                <th class="p-3.5">User Destination / Location</th>
+                                <th class="p-3.5">Duration</th>
+                                <th class="p-3.5">Messages Exchanged</th>
+                                <th class="p-3.5 text-center">Timestamp</th>
+                                <th class="p-3.5 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="enterprise-analytics-tbody" class="divide-y divide-lightBorder dark:divide-darkBorder">
+                            <tr><td colspan="6" class="p-4 text-center text-slate-400">Loading dynamic chat records...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Charts Analytics Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl shadow-sm lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200">Table Sync & AI Conversational Traffic</h3>
+                        <span class="text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 px-3 py-1 rounded-lg">Last 7 Days</span>
+                    </div>
                     <div class="h-64"><canvas id="lineChart"></canvas></div>
                 </div>
 
-                <div class="bg-brandCard border border-brandBorder p-5 rounded-2xl">
-                    <h3 class="text-sm font-semibold text-slate-200 mb-4">Source Distribution</h3>
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4">Traffic Acquisition & Source Distribution</h3>
                     <div class="h-64 flex items-center justify-center"><canvas id="pieChart"></canvas></div>
                 </div>
             </div>
         </section>
-
-        <!-- 2. DATABASE & GOOGLE SHEETS SETUP TAB -->
+        <!-- 2. DATABASE & SHEETS SETUP TAB -->
         <section id="db-tab" class="tab-content space-y-6 hidden">
-            <h1 class="text-2xl font-bold text-white">Database / Google Sheets & AI Training Setup</h1>
+            <h1 class="text-2xl font-black text-slate-900 dark:text-white">Database / Google Sheets & AI Training Setup</h1>
             
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="bg-brandCard border border-brandBorder p-6 rounded-2xl lg:col-span-2 space-y-4">
-                    <h2 class="text-sm font-semibold text-nwebCyan uppercase tracking-wider">1. Choose Data Source</h2>
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl lg:col-span-2 space-y-5 shadow-sm">
+                    <h2 class="text-xs font-bold text-nwebCyan uppercase tracking-widest">1. Select Integration Source</h2>
                     
-                    <!-- Toggle Source Type -->
-                    <div class="flex gap-4 mb-4">
-                        <label class="flex items-center gap-2 cursor-pointer text-sm font-medium">
-                            <input type="radio" name="dataSourceType" value="sql" checked onchange="toggleDataSourceForm()"> SQL Server Database
+                    <div class="flex gap-4 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-lightBorder dark:border-darkBorder w-fit">
+                        <label class="flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer text-xs font-bold transition text-slate-700 dark:text-slate-200">
+                            <input type="radio" name="dataSourceType" value="sql" checked onchange="toggleDataSourceForm()" class="accent-nwebCyan"> SQL Server
                         </label>
-                        <label class="flex items-center gap-2 cursor-pointer text-sm font-medium">
-                            <input type="radio" name="dataSourceType" value="googlesheet" onchange="toggleDataSourceForm()"> Google Sheets / Excel
+                        <label class="flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer text-xs font-bold transition text-slate-700 dark:text-slate-200">
+                            <input type="radio" name="dataSourceType" value="googlesheet" onchange="toggleDataSourceForm()" class="accent-nwebCyan"> Google Sheets / Excel
                         </label>
                     </div>
 
                     <!-- SQL Server Form -->
                     <form id="sqlForm" onsubmit="connectServer(event)" class="space-y-4">
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">Host / IP</label>
-                                <input type="text" id="db_host" value="relational.fel.cvut.cz" class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
+                                <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Host / IP Address</label>
+                                <input type="text" id="db_host" value="relational.fel.cvut.cz" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none transition">
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">Port</label>
-                                <input type="text" id="db_port" value="3306" class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">Username</label>
-                                <input type="text" id="db_user" value="guest" class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-slate-400 mb-1">Password</label>
-                                <input type="password" id="db_pass" value="ctu-relational" class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
+                                <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Port</label>
+                                <input type="text" id="db_port" value="3306" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none transition">
                             </div>
                         </div>
-                        <button type="submit" id="btn-server" class="w-full py-3 bg-gradient-to-r from-nwebBlue to-nwebCyan text-white font-bold text-sm rounded-xl transition shadow-lg shadow-nwebBlue/20">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Username</label>
+                                <input type="text" id="db_user" value="guest" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Password</label>
+                                <input type="password" id="db_pass" value="ctu-relational" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none transition">
+                            </div>
+                        </div>
+                        <button type="submit" id="btn-server" class="w-full py-3.5 bg-gradient-to-r from-nwebBlue to-nwebCyan text-white font-bold text-sm rounded-xl transition shadow-lg shadow-nwebBlue/20 hover:opacity-95">
                             Connect Server & Fetch Databases
                         </button>
                     </form>
 
-                    <!-- Google Sheets / Excel Form (Alternative Option) -->
+                    <!-- Google Sheets / Excel Form -->
                     <div id="sheetForm" class="space-y-4 hidden">
                         <div>
-                            <label class="block text-xs font-medium text-slate-400 mb-1">Google Sheet Public URL / Credentials ID</label>
-                            <input type="text" id="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
+                            <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Google Sheet Public URL</label>
+                            <input type="text" id="googleSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none transition">
                         </div>
                         <div>
-                            <label class="block text-xs font-medium text-slate-400 mb-1">Or Upload Local Excel / CSV File</label>
-                            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" class="w-full bg-brandDark border border-brandBorder rounded-xl p-2.5 text-sm text-slate-300">
+                            <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Or Upload Excel / CSV File</label>
+                            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-2.5 text-sm text-slate-600 dark:text-slate-300">
                         </div>
-                        <button type="button" onclick="connectGoogleSheetOrExcel()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition">
-                            Load Sheets / Tables Data
+                        <button type="button" onclick="connectGoogleSheetOrExcel()" class="w-full py-3.5 bg-gradient-to-r from-nwebBlue to-nwebCyan text-white font-bold text-sm rounded-xl transition shadow-md">
+                            Load Sheets / Columns
                         </button>
                     </div>
 
                     <!-- Dropdown Container -->
-                    <div id="db-dropdown-container" class="pt-4 border-t border-brandBorder hidden space-y-3">
-                        <label class="block text-xs font-semibold text-slate-300">Select Target Database:</label>
-                        <select id="db-select" onchange="loadTablesForDB()" class="w-full bg-brandDark border border-brandBorder rounded-xl p-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
+                    <div id="db-dropdown-container" class="pt-4 border-t border-lightBorder dark:border-darkBorder hidden space-y-3">
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">Target Database:</label>
+                        <select id="db-select" onchange="loadTablesForDB()" class="w-full bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl p-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none">
                             <option value="">-- Choose Database --</option>
                         </select>
                     </div>
 
-                    <!-- Tables Container -->
-                    <div id="tables-container" class="pt-4 border-t border-brandBorder hidden space-y-3">
+                    <!-- Tables Checkboxes Container -->
+                    <div id="tables-container" class="pt-4 border-t border-lightBorder dark:border-darkBorder hidden space-y-3">
                         <div class="flex justify-between items-center mb-2">
-                            <h3 class="text-xs font-semibold text-slate-300">Select Tables/Sheets to Import & Train:</h3>
-                            <button onclick="selectAllTables(true)" class="text-[11px] text-nwebCyan hover:underline">Select All</button>
+                            <h3 class="text-xs font-bold text-slate-700 dark:text-slate-300">Select Columns/Tables for AI Model Context:</h3>
                         </div>
-                        <div id="tables-list" class="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-2"></div>
+                        <div id="tables-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-52 overflow-y-auto pr-2"></div>
 
-                        <!-- Action Buttons -->
-                        <div class="pt-4 space-y-2">
-                            <button onclick="addDatabaseSetupToMongo()" id="btn-add-setup" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-2">
-                                <i class="fa-solid fa-plus-circle"></i> Save Setup to User Profile (MongoDB)
-                            </button>
-                        </div>
+                        <button onclick="addDatabaseSetupToMongo()" id="btn-add-setup" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-2 shadow-md mt-4">
+                            <i class="fa-solid fa-plus-circle"></i> Save Setup to User Profile (MongoDB)
+                        </button>
                     </div>
                 </div>
 
-                <!-- Train & Model Action Panel -->
-                <div class="bg-brandCard border border-brandBorder p-6 rounded-2xl flex flex-col justify-between">
+                <!-- Active Setup Status Panel -->
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl flex flex-col justify-between shadow-sm">
                     <div class="space-y-4">
-                        <h2 class="text-sm font-semibold text-nwebCyan uppercase tracking-wider">2. Model Context & Actions</h2>
-                        <p class="text-xs text-slate-400">Train AI agent on your isolated user database schema.</p>
+                        <h2 class="text-xs font-bold text-nwebCyan uppercase tracking-widest">2. Model Synchronization</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">Train AI model on your user-isolated database context.</p>
                         
-                        <div class="bg-brandDark/80 p-4 rounded-xl border border-brandBorder space-y-2 text-xs">
-                            <div class="flex justify-between text-slate-400"><span>Active Source:</span> <strong id="lbl-active-db" class="text-white">None</strong></div>
-                            <div class="flex justify-between text-slate-400"><span>Selected Tables:</span> <strong id="lbl-active-tables" class="text-white">0</strong></div>
-                            <div class="flex justify-between text-slate-400"><span>Sync Status:</span> <strong id="lbl-local-status" class="text-amber-400">Not Connected</strong></div>
+                        <div class="bg-slate-100 dark:bg-slate-900/80 p-4 rounded-xl border border-lightBorder dark:border-darkBorder space-y-2.5 text-xs">
+                            <div class="flex justify-between text-slate-500 dark:text-slate-400"><span>Active Source:</span> <strong id="lbl-active-db" class="text-slate-900 dark:text-white">None</strong></div>
+                            <div class="flex justify-between text-slate-500 dark:text-slate-400"><span>Selected Columns:</span> <strong id="lbl-active-tables" class="text-slate-900 dark:text-white">0</strong></div>
+                            <div class="flex justify-between text-slate-500 dark:text-slate-400"><span>Sync Status:</span> <strong id="lbl-local-status" class="text-amber-500">Not Connected</strong></div>
                         </div>
                     </div>
 
-                    <div class="space-y-3 pt-6 border-t border-brandBorder">
-                        <button onclick="trainAIModel()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
-                            <i class="fa-solid fa-brain"></i> Train AI Model
-                        </button>
-                        <button onclick="switchTab('dbSetup', document.querySelectorAll('.nav-btn')[2])" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-sm rounded-xl transition flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-code"></i> Get Embed CDN Widget
+                    <div class="space-y-3 pt-6 border-t border-lightBorder dark:border-darkBorder">
+                        <button onclick="trainAIModel()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+                            <i class="fa-solid fa-brain"></i> Train AI Context
                         </button>
                     </div>
                 </div>
@@ -268,137 +382,135 @@
         <!-- 3. AI AGENT GENERATOR & CDN TAB -->
         <section id="dbSetup" class="tab-content space-y-6 hidden">
             <div class="max-w-4xl mx-auto">
-                <!-- 1. FORM SECTION -->
-                <div id="agentFormSection" class="bg-[#0F162A] p-8 rounded-xl shadow-md border border-brandBorder">
-                    <h2 id="formTitle" class="text-2xl font-bold text-[#00B4D8] mb-6 flex items-center gap-2">
-                        AI Agent Setup & Generator
+                <!-- 🟢 DYNAMIC HEADER WIDGETS CONTAINER (API Status, Active Plan, Usage/Billing) -->
+                <div id="agent-header-widgets"></div>
+
+                <div id="agentFormSection" class="bg-lightCard dark:bg-darkCard p-6 md:p-8 rounded-2xl shadow-sm border border-lightBorder dark:border-darkBorder">
+                    <h2 id="formTitle" class="text-xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
+                        <i class="fa-solid fa-robot text-nwebCyan"></i> AI Agent Setup & Generator
                     </h2>
                     
-                    <form id="agentSetupForm" class="space-y-6">
+                    <form id="agentSetupForm" class="space-y-5">
                         <input type="hidden" id="agentId" name="agentId">
 
                         <div>
-                            <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Agent Name</label>
-                            <input type="text" id="agentName" class="w-full focus:ring-2 focus:ring-blue-500 px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Assistant" required>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Agent Name</label>
+                            <input type="text" id="agentName" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm transition" placeholder="e.g. Sales Assistant" required>
                         </div>
 
                         <div>
-                            <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Business Name</label>
-                            <input type="text" id="businessName" class="w-full focus:ring-2 focus:ring-blue-500 px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="e.g. NWeb Institute" required>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Business Name</label>
+                            <input type="text" id="businessName" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm transition" placeholder="e.g. NWeb Enterprises" required>
                         </div>
 
                         <div>
-                            <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Business Description (AI Training Context)</label>
-                            <textarea id="businessDescription" rows="4" class="w-full px-4 py-2.5 focus:ring-2 focus:ring-blue-500 bg-[#070B14] rounded-lg outline-none transition border border-brandBorder" placeholder="Detail description about your courses, services, FAQs..." required></textarea>
-                        </div>
-                        <!-- Provider Selection -->
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">AI Provider</label>
-                            <select id="providerSelect" class="w-full p-2 rounded-lg bg-[#070B14] focus:ring-2 focus:ring-blue-500 border-none">
-                                <option value="openai">OpenAI</option>
-                                <option value="groq">Groq</option>
-                                <option value="gemini">Gemini</option>
-                            </select>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Business Description (AI Context Prompt)</label>
+                            <textarea id="businessDescription" rows="4" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm transition" placeholder="Enter details about your services, pricing, and FAQs..." required></textarea>
                         </div>
 
-                        <!-- Dynamic Model Selection -->
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">Select Model</label>
-                            <select id="modelSelect" class="w-full p-2 bg-[#070B14] rounded-lg focus:ring-2 focus:ring-blue-500">
-                                <option>Please Select Ai Provider</option>
-                            </select>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">AI Provider</label>
+                                <select id="providerSelect" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="groq">Groq</option>
+                                    <option value="gemini">Gemini</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Select Model</label>
+                                <select id="modelSelect" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm">
+                                    <option>Select Provider First</option>
+                                </select>
+                            </div>
                         </div>
 
-                        <!-- Custom API Key Input -->
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-[#00B4D8] mb-1">Enter Api Key</label>
-                            <input type="password" id="customApiKey" class="w-[80%] bg-[#070B14] border-none p-2 border rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Enter API key for selected provider">
-                            <button class=" px-3 py-3 bg-[#00B4D8] text-white rounded-lg text-xs font-semibold cursor-not-allowed"  disabled >Request for Api Create</button>
-                            <!-- Error message display karne ke liye -->
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">API Access Key</label>
+                            <input type="password" id="customApiKey" class="w-full px-4 py-3 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-nwebCyan text-sm transition" placeholder="Enter provider API key">
                             <small id="apiKeyError" class="text-red-500 text-xs mt-1 block"></small>
                         </div>
-                        <!-- Navigation Routes Section -->
+
+                        <!-- Routes Container -->
                         <div>
-                            <label class="block text-sm font-semibold text-[#00B4D8] mb-2">Website Navigation Routes</label>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Website Navigation Routes</label>
                             <div id="routesContainer" class="space-y-3">
                                 <div class="flex gap-3 route-row">
-                                    <input type="text" class="flex-1 route-name px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition text-sm border border-brandBorder" placeholder="Route Name (e.g. Courses)">
-                                    <input type="text" class="flex-1 route-path px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition text-sm border border-brandBorder" placeholder="Route Path (e.g. /courses)">
-                                    <button type="button" onclick="removeRouteRow(this)" class="px-4 py-2.5 bg-red-500 text-white rounded-lg text-sm font-bold">X</button>
+                                    <input type="text" class="flex-1 route-name px-4 py-2.5 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none" placeholder="Route Name (e.g. Services)">
+                                    <input type="text" class="flex-1 route-path px-4 py-2.5 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none" placeholder="Path (e.g. /services)">
+                                    <button type="button" onclick="removeRouteRow(this)" class="px-3.5 py-2 bg-red-500 text-white rounded-xl text-xs font-bold">X</button>
                                 </div>
                             </div>
-                            <button type="button" onclick="addRouteRow()" class="mt-3 px-3 py-1.5 bg-[#00B4D8] text-white rounded-lg text-xs font-semibold">
+                            <button type="button" onclick="addRouteRow()" class="mt-3 px-3 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold">
                                 + Add Route
                             </button>
                         </div>
 
-                        <button type="submit" id="submitBtn" class="w-full py-3 bg-[#00B4D8] text-white font-semibold rounded-lg transition shadow-md hover:shadow-lg">
+                        <button type="submit" id="submitBtn" class="w-full py-3.5 bg-nwebCyan hover:bg-cyan-400 text-white font-extrabold rounded-xl transition shadow-lg shadow-nwebCyan/20 mt-4">
                            Generate AI Agent
                         </button>
                     </form>
                 </div>
 
-                <!-- 2. CDN & DETAILS SECTION -->
-                <div id="agentCDNSection" class="hidden bg-slate-900 p-8 rounded-xl shadow-md border border-brandBorder mt-6">
+                <!-- CDN & Script Embed View -->
+                <div id="agentCDNSection" class="hidden bg-lightCard dark:bg-darkCard p-6 md:p-8 rounded-2xl shadow-sm border border-lightBorder dark:border-darkBorder mt-6">
                     <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-2xl font-bold text-white flex items-center gap-2">✨ Your AI Agent is Ready!</h3>
-                        <span id="planBadge" class="px-3 py-1 bg-green-900/60 text-green-300 text-sm font-semibold rounded-full border border-green-700">
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">AI Agent Live & Active</h3>
+                        <span id="planBadge" class="px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/20">
                             Plan: Free Tier
                         </span>
                     </div>
 
-                    <!-- Usage Banner -->
-                    <div class="bg-blue-950/40 border border-blue-900 p-4 rounded-lg mb-6">
-                        <div class="text-sm font-semibold text-blue-300 mb-1">
-                            Usage Status: <span id="messagesUsedCount">0</span> / <span id="maxMessagesLimit">50</span> Messages Used
+                    <div class="bg-slate-100 dark:bg-slate-900 p-4 rounded-xl border border-lightBorder dark:border-darkBorder mb-6">
+                        <div class="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                            Usage Quota: <span id="messagesUsedCount">0</span> / <span id="maxMessagesLimit">50</span> Messages
                         </div>
-                        <div class="w-full bg-blue-900 rounded-full h-2.5 overflow-hidden">
-                            <div id="usageProgressBar" class="bg-blue-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div id="usageProgressBar" class="bg-nwebCyan h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
                         </div>
-                        <p class="text-xs text-blue-400 mt-2">Upgrade to Pro for unlimited conversations!</p>
                     </div>
 
-                    <!-- CDN Embed Code -->
                     <div class="mb-6">
-                        <label class="block text-sm font-semibold text-slate-300 mb-2">Embed CDN Script in your website (<code class="text-red-400">&lt;head&gt;</code> tag):</label>
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Embed Script Code:</label>
                         <div class="relative">
-                            <textarea id="cdnScriptText" rows="3" readonly class="w-full p-4 bg-brandDark text-green-400 font-mono text-xs rounded-lg border border-brandBorder outline-none resize-none"></textarea>
-                            <button onclick="copyCDNCode()" class="absolute top-3 right-3 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-xs font-medium shadow">
-                                📋 Copy CDN
+                            <textarea id="cdnScriptText" rows="3" readonly class="w-full p-4 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl border border-darkBorder outline-none resize-none"></textarea>
+                            <button onclick="copyCDNCode()" class="absolute top-3 right-3 px-3 py-1.5 bg-nwebCyan text-slate-950 rounded-lg text-xs font-bold shadow">
+                                Copy CDN
                             </button>
                         </div>
                     </div>
 
-                    <button type="button" onclick="editAssistant()" class="w-full py-3 bg-amber-500 text-slate-950 font-bold rounded-lg hover:bg-amber-400 transition shadow">
-                        ✏️ Edit Assistant
+                    <button type="button" onclick="editAssistant()" class="w-full py-3.5 bg-gradient-to-r from-nwebBlue to-nwebCyan text-white font-bold rounded-xl transition shadow">
+                        Edit Assistant Configuration
                     </button>
                 </div>
             </div>
         </section>
 
-        <!-- 4. VIEW RECENT SETUPS TAB -->
+        <!-- 4. RECENT SETUPS TAB -->
         <section id="recent-tab" class="tab-content space-y-6 hidden">
             <div class="flex justify-between items-center">
-                <h1 class="text-2xl font-bold text-white">View Recent Database Setups</h1>
-                <button onclick="fetchRecentSetups()" class="px-4 py-2 bg-brandCard border border-brandBorder text-slate-300 rounded-xl text-xs hover:text-white transition">
+                <h1 class="text-2xl font-black text-slate-900 dark:text-white">View Recent Database Setups</h1>
+                <button onclick="fetchRecentSetups()" class="px-4 py-2 bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                     <i class="fa-solid fa-arrows-rotate mr-1"></i> Refresh List
                 </button>
             </div>
             
-            <div class="bg-brandCard border border-brandBorder rounded-2xl overflow-hidden">
+            <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder rounded-2xl overflow-hidden shadow-sm">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs text-slate-300">
-                        <thead class="bg-slate-900/80 text-slate-400 uppercase tracking-wider border-b border-brandBorder">
+                    <table class="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                        <thead class="bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-lightBorder dark:border-darkBorder">
                             <tr>
                                 <th class="p-4">Setup ID</th>
                                 <th class="p-4">Source / DB Name</th>
-                                <th class="p-4">Tables Included</th>
+                                <th class="p-4">Tables/Columns Included</th>
                                 <th class="p-4">Timestamp</th>
-                                <th class="p-4 text-right">Action</th>
+                                <th class="p-4 text-right">Status</th>
                             </tr>
                         </thead>
-                        <tbody id="recent-setups-body" class="divide-y divide-brandBorder/60">
-                            <tr><td colspan="5" class="p-4 text-center text-slate-500">Loading user setups from MongoDB...</td></tr>
+                        <tbody id="recent-setups-body" class="divide-y divide-lightBorder dark:divide-darkBorder">
+                            <tr><td colspan="5" class="p-4 text-center text-slate-400">Loading user setups...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -409,28 +521,162 @@
         <section id="agent-tab" class="tab-content space-y-6 hidden">
             <div class="flex justify-between items-center">
                 <div>
-                    <h1 class="text-2xl font-bold text-white">AI Agent Workspace</h1>
-                    <p class="text-xs text-slate-400">Contextual Agent running locally on port 5000</p>
+                    <h1 class="text-2xl font-black text-slate-900 dark:text-white">AI Agent Workspace</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Contextual query testing environment</p>
                 </div>
-                <span id="chat-db-tag" class="text-xs px-3 py-1.5 bg-slate-800 border border-brandBorder rounded-xl text-nwebCyan font-medium">DB: Default Context</span>
+                <span id="chat-db-tag" class="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-lightBorder dark:border-darkBorder rounded-xl text-nwebCyan font-bold">DB: Default Context</span>
             </div>
 
-            <div class="bg-brandCard border border-brandBorder p-6 rounded-2xl h-[520px] flex flex-col justify-between">
+            <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl h-[520px] flex flex-col justify-between shadow-sm">
                 <div id="chat-messages" class="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
-                    <div class="bg-slate-800/60 p-4 rounded-2xl max-w-lg text-xs text-slate-300 border border-brandBorder/50">
+                    <div class="bg-slate-100 dark:bg-slate-800/60 p-4 rounded-2xl max-w-lg text-xs text-slate-700 dark:text-slate-300 border border-lightBorder dark:border-darkBorder">
                         <span class="font-bold text-nwebCyan block mb-1">AI Assistant Ready:</span>
-                        Ask any data-related question. The model uses your selected tables and database schema context automatically.
+                        Ask any data-related question. The model uses your selected columns and database schema context automatically.
                     </div>
                 </div>
                 <form onsubmit="sendQuery(event)" class="flex gap-2">
-                    <input type="text" id="chat_input" placeholder="Type your query..." class="flex-1 bg-brandDark border border-brandBorder rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-nwebCyan">
+                    <input type="text" id="chat_input" placeholder="Type your query..." class="flex-1 bg-slate-50 dark:bg-darkBg border border-lightBorder dark:border-darkBorder rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-white focus:ring-2 focus:ring-nwebCyan outline-none">
                     <button type="submit" class="px-6 py-3 bg-nwebCyan text-slate-950 font-bold text-sm rounded-xl hover:bg-cyan-400 transition">Send Query</button>
                 </form>
             </div>
         </section>
 
+        <!-- 🟢 6. PLANS & BILLING UPGRADE TAB -->
+        <section id="plans-tab" class="tab-content space-y-6 hidden">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-2xl font-black text-slate-900 dark:text-white">Upgrade Subscription Plans</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Choose a robust plan to continue operating your enterprise AI agents</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+                <!-- Free Plan Card (Disabled if already used) -->
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
+                    <div>
+                        <span class="text-xs font-bold uppercase text-slate-400 tracking-wider">Trial Tier</span>
+                        <h3 class="text-xl font-black text-slate-900 dark:text-white mt-1">Free Plan</h3>
+                        <div class="text-2xl font-black text-slate-700 dark:text-slate-300 my-4">$0 <span class="text-xs font-normal text-slate-400">/ trial</span></div>
+                        <ul class="space-y-2.5 text-xs text-slate-600 dark:text-slate-400 mb-6">
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> 15 Messages Trial Limit</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Standard Database Sync</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Community Support</li>
+                        </ul>
+                    </div>
+                    <button id="btn-free-plan" disabled class="w-full py-3 bg-slate-200 dark:bg-slate-800 text-slate-400 font-bold rounded-xl text-xs cursor-not-allowed">
+                        Already Used / Expired
+                    </button>
+                </div>
+
+                <!-- Basic Plan Card -->
+                <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder p-6 rounded-2xl flex flex-col justify-between shadow-sm">
+                    <div>
+                        <span class="text-xs font-bold uppercase text-nwebCyan tracking-wider">Starter Tier</span>
+                        <h3 class="text-xl font-black text-slate-900 dark:text-white mt-1">Basic Plan</h3>
+                        <div class="text-2xl font-black text-slate-900 dark:text-white my-4">$29 <span class="text-xs font-normal text-slate-400">/ one-time quota</span></div>
+                        <ul class="space-y-2.5 text-xs text-slate-600 dark:text-slate-400 mb-6">
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> 500 Messages Quota</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Message-Quota-Wise Tracking</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Priority API Routing</li>
+                        </ul>
+                    </div>
+                    <button onclick="openPaymentModal('basic', '$29')" class="w-full py-3 bg-nwebCyan text-slate-950 font-bold rounded-xl text-xs hover:bg-cyan-400 transition shadow">
+                        Select Basic Plan
+                    </button>
+                </div>
+
+                <!-- Silver Plan Card -->
+                <div class="bg-lightCard dark:bg-darkCard border border-nwebCyan/40 p-6 rounded-2xl flex flex-col justify-between shadow-md relative">
+                    <span class="absolute top-4 right-4 bg-nwebCyan/10 text-nwebCyan text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase">Popular</span>
+                    <div>
+                        <span class="text-xs font-bold uppercase text-nwebCyan tracking-wider">Pro Tier</span>
+                        <h3 class="text-xl font-black text-slate-900 dark:text-white mt-1">Silver Plan</h3>
+                        <div class="text-2xl font-black text-slate-900 dark:text-white my-4">$79 <span class="text-xs font-normal text-slate-400">/ high quota</span></div>
+                        <ul class="space-y-2.5 text-xs text-slate-600 dark:text-slate-400 mb-6">
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> 3,000 Messages Quota</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Message-Quota-Wise Tracking</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Advanced Security Analytics</li>
+                        </ul>
+                    </div>
+                    <button onclick="openPaymentModal('silver', '$79')" class="w-full py-3 bg-gradient-to-r from-nwebBlue to-nwebCyan text-white font-bold rounded-xl text-xs hover:opacity-95 transition shadow">
+                        Select Silver Plan
+                    </button>
+                </div>
+
+                <!-- Golden Plan Card -->
+                <div class="bg-lightCard dark:bg-darkCard border border-amber-500/40 p-6 rounded-2xl flex flex-col justify-between shadow-md relative">
+                    <span class="absolute top-4 right-4 bg-amber-500/10 text-amber-500 text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase">Enterprise</span>
+                    <div>
+                        <span class="text-xs font-bold uppercase text-amber-500 tracking-wider">VIP Tier</span>
+                        <h3 class="text-xl font-black text-slate-900 dark:text-white mt-1">Golden Plan</h3>
+                        <div class="text-2xl font-black text-slate-900 dark:text-white my-4">$149 <span class="text-xs font-normal text-slate-400">/ month</span></div>
+                        <ul class="space-y-2.5 text-xs text-slate-600 dark:text-slate-400 mb-6">
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Unlimited / Fair-Use Messages</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Time / Month-Wise Subscription</li>
+                            <li><i class="fa-solid fa-check text-emerald-500 mr-2"></i> Dedicated 24/7 Support</li>
+                        </ul>
+                    </div>
+                    <button onclick="openPaymentModal('golden', '$149')" class="w-full py-3 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-amber-400 transition shadow">
+                        Select Golden Plan
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 🟢 FAKE PAYMENT GATEWAY MODAL -->
+        <div id="paymentModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4">
+                <div class="flex justify-between items-center border-b border-lightBorder dark:border-darkBorder pb-3">
+                    <h3 class="font-bold text-slate-900 dark:text-white" id="modalPlanTitle">Secure Checkout</h3>
+                    <button onclick="closePaymentModal()" class="text-slate-400 hover:text-white font-bold">✕</button>
+                </div>
+                
+                <form id="fakePaymentForm" onsubmit="processFakePayment(event)" class="space-y-3">
+                    <input type="hidden" id="selectedPlanInput">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Cardholder Name</label>
+                        <input type="text" required placeholder="Hunaid Asif" class="w-full bg-slate-100 dark:bg-darkBg p-3 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Dummy Card Number</label>
+                        <input type="text" required placeholder="4242 •••• •••• 4242" class="w-full bg-slate-100 dark:bg-darkBg p-3 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">Expiry</label>
+                            <input type="text" required placeholder="12/28" class="w-full bg-slate-100 dark:bg-darkBg p-3 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">CVC</label>
+                            <input type="password" required placeholder="123" class="w-full bg-slate-100 dark:bg-darkBg p-3 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-nwebCyan text-slate-950 font-extrabold rounded-xl text-xs hover:bg-cyan-400 transition mt-2 shadow">
+                        Pay & Submit for Admin Approval
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Chat History Modal -->
+        <div id="chatHistoryModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+            <div class="bg-lightCard dark:bg-darkCard border border-lightBorder dark:border-darkBorder w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div class="p-4 border-b border-lightBorder dark:border-darkBorder flex justify-between items-center bg-slate-100 dark:bg-slate-900">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900 dark:text-white" id="modalVisitorTitle">Visitor History</h3>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400" id="modalVisitorMeta">Loading details...</p>
+                    </div>
+                    <button onclick="closeChatModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white text-base font-bold p-2">✕</button>
+                </div>
+                <div id="modalChatContent" class="p-4 overflow-y-auto space-y-3 flex-1 text-xs">
+                    <div class="text-center text-slate-400 py-6">Loading conversation history...</div>
+                </div>
+            </div>
+        </div>
+
     </main>
 
+    <!-- Unified Dashboard Client Scripting -->
     <script>
         const logoutUser = () => {
             localStorage.removeItem("token");
@@ -438,21 +684,37 @@
             window.location.href = "/authentication.html";
         };
 
-        const API_BASE = 'https://agentic-ai-website-driver.vercel.app/api/dashboard';
+        const API_BASE = 'http://localhost:5000/api/dashboard';
         let currentDB = localStorage.getItem('active_db') || "";
 
-        window.addEventListener('DOMContentLoaded', async () => {
-            await checkExistingAgent();
-        });
+        function toggleDarkMode() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            document.getElementById('themeLabel').innerText = isDark ? 'Dark Mode' : 'Light Mode';
+        }
+
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('mainSidebar');
+            const backdrop = document.getElementById('sidebarBackdrop');
+            sidebar.classList.toggle('-translate-x-full');
+            backdrop.classList.toggle('hidden');
+        }
 
         function switchTab(tabId, btnElement) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm font-semibold transition");
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50 text-sm font-semibold transition";
+            });
+            
             document.getElementById(tabId).classList.remove('hidden');
-            if(btnElement) btnElement.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-800 text-nwebCyan text-sm font-semibold transition";
+            if(btnElement) btnElement.className = "nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-nwebBlue dark:text-nwebCyan text-sm font-bold shadow-sm transition";
 
             if (tabId === 'recent-tab') fetchRecentSetups();
             if (tabId === 'overview-tab') loadDashboardStats();
+            
+            if (window.innerWidth < 768) {
+                toggleMobileSidebar();
+            }
         }
 
         function toggleDataSourceForm() {
@@ -469,7 +731,7 @@
         async function connectServer(e) {
             e.preventDefault();
             const btn = document.getElementById('btn-server');
-            btn.innerText = "Connecting & Fetching...";
+            btn.innerText = "Connecting...";
 
             try {
                 const res = await fetch(`${API_BASE}/fetch-databases`, {
@@ -496,29 +758,56 @@
         }
 
         async function connectGoogleSheetOrExcel() {
-            const sheetUrl = document.getElementById('googleSheetUrl').value;
+            const sheetUrl = document.getElementById('googleSheetUrl').value.trim();
             const fileInput = document.getElementById('excelFile').files[0];
             
-            if(!sheetUrl && !fileInput) {
+            if (!sheetUrl && !fileInput) {
                 alert("Please provide either a Google Sheet URL or upload an Excel file.");
                 return;
             }
 
-            // Simulate parsing sheets/tables for demonstration & mock selection
-            const dbSelect = document.getElementById('db-select');
-            dbSelect.innerHTML = '<option value="GoogleSheet_Source">GoogleSheet_Data_Source</option>';
-            document.getElementById('db-dropdown-container').classList.remove('hidden');
-            
-            const list = document.getElementById('tables-list');
-            list.innerHTML = `
-                <label class="flex items-center gap-2 p-2.5 bg-brandDark/60 rounded-xl border border-brandBorder text-xs text-slate-300">
-                    <input type="checkbox" value="Sheet1_Data" checked class="table-cb rounded text-nwebCyan bg-slate-900 border-slate-700">
-                    <span class="truncate">Sheet1_Data</span>
-                </label>
-            `;
-            document.getElementById('tables-container').classList.remove('hidden');
-            currentDB = "GoogleSheet_Source";
-            alert("Google Sheet / Excel successfully connected!");
+            const formData = new FormData();
+            if (fileInput) {
+                formData.append('excelFile', fileInput);
+            } else if (sheetUrl) {
+                formData.append('googleSheetUrl', sheetUrl);
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/fetch-sheet-columns`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.columns) {
+                    const dbSelect = document.getElementById('db-select');
+                    dbSelect.innerHTML = `<option value="${data.sourceName || 'Sheet_Source'}">${data.sourceName || 'Sheet_Source'}</option>`;
+                    document.getElementById('db-dropdown-container').classList.remove('hidden');
+                    
+                    const list = document.getElementById('tables-list');
+                    list.innerHTML = '';
+                    
+                    data.columns.forEach(col => {
+                        list.innerHTML += `
+                            <label class="flex items-center gap-2 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-slate-300">
+                                <input type="checkbox" value="${col}" checked class="table-cb rounded accent-nwebCyan">
+                                <span class="truncate">${col}</span>
+                            </label>
+                        `;
+                    });
+
+                    document.getElementById('tables-container').classList.remove('hidden');
+                    currentDB = data.sourceName || "Sheet_Source";
+                    alert("Sheet columns loaded successfully!");
+                } else {
+                    alert(data.message || "Failed to load columns from Sheet.");
+                }
+            } catch (err) {
+                console.error("Connect Sheet Error:", err);
+                alert("Server error while reading sheet columns.");
+            }
         }
 
         async function loadTablesForDB() {
@@ -544,8 +833,8 @@
                 list.innerHTML = '';
                 data.tables.forEach(table => {
                     list.innerHTML += `
-                        <label class="flex items-center gap-2 p-2.5 bg-brandDark/60 rounded-xl border border-brandBorder text-xs text-slate-300">
-                            <input type="checkbox" value="${table}" checked class="table-cb rounded text-nwebCyan bg-slate-900 border-slate-700">
+                        <label class="flex items-center gap-2 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-slate-300">
+                            <input type="checkbox" value="${table}" checked class="table-cb rounded accent-nwebCyan">
                             <span class="truncate">${table}</span>
                         </label>
                     `;
@@ -554,140 +843,106 @@
             }
         }
 
-async function addDatabaseSetupToMongo() {
-    const sourceTypeName = document.querySelector('input[name="dataSourceType"]:checked')?.value || 'sql';
-    const fileInput = document.getElementById('excelFile')?.files[0];
-    const sheetUrlVal = document.getElementById('googleSheetUrl')?.value.trim();
-    const token = localStorage.getItem('token');
+        async function addDatabaseSetupToMongo() {
+            const sourceTypeName = document.querySelector('input[name="dataSourceType"]:checked')?.value || 'sql';
+            const fileInput = document.getElementById('excelFile')?.files[0];
+            const sheetUrlVal = document.getElementById('googleSheetUrl')?.value.trim();
+            const token = localStorage.getItem('token');
 
-    if (!token) return alert('Please login first.');
+            if (!token) return alert('Please login first.');
 
-    const formData = new FormData();
-    formData.append('dataSourceType', sourceTypeName);
+            const formData = new FormData();
+            formData.append('dataSourceType', sourceTypeName);
 
-    const selectedTables = Array.from(document.querySelectorAll('.table-cb:checked')).map(cb => cb.value);
+            const selectedTables = Array.from(document.querySelectorAll('.table-cb:checked')).map(cb => cb.value);
 
-    // 1. Agar EXCEL FILE Upload ki hui hai
-    if (fileInput) {
-        formData.append('excelFile', fileInput);
-        selectedTables.forEach(t => formData.append('selectedTables[]', t));
-    } 
-    // 2. Agar GOOGLE SHEET URL diya gaya hai
-    else if (sourceTypeName === 'googlesheet' || sheetUrlVal) {
-        if (!sheetUrlVal) return alert('Please enter a Google Sheet URL first.');
-        formData.append('googleSheetUrl', sheetUrlVal);
-        
-        // Default table name agar koi checkbox check na ho
-        const tablesToSend = selectedTables.length > 0 ? selectedTables : ['Sheet1_Data'];
-        tablesToSend.forEach(t => formData.append('selectedTables[]', t));
-    } 
-    // 3. Agar SQL DATABASE connect kiya gaya hai
-    else {
-        if (!currentDB || selectedTables.length === 0) return alert('Select Database and at least 1 table');
-
-        formData.append('host', document.getElementById('db_host').value);
-        formData.append('port', document.getElementById('db_port').value);
-        formData.append('user', document.getElementById('db_user').value);
-        formData.append('password', document.getElementById('db_pass').value);
-        formData.append('database', currentDB);
-        selectedTables.forEach(t => formData.append('selectedTables[]', t));
-    }
-
-    try {
-        const res = await fetch(`${API_BASE}/save-setup`, {
-            method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${token}` 
-                // Content-Type multipart/form-data browser khud auto-set kar lega
-            },
-            body: formData
-        });
-
-const data = await res.json();
-        if (res.ok) {
-            alert('Setup successfully saved to your User Profile!');
-
-            // 1. Input fields ko empty karein
-            const sheetInput = document.getElementById('googleSheetUrl');
-            if (sheetInput) sheetInput.value = '';
-
-            const fileInput = document.getElementById('excelFile');
-            if (fileInput) fileInput.value = ''; // File input clear karna
-
-            // Agar SQL inputs hain toh unhein bhi clear kar dein
-            if (document.getElementById('db_host')) document.getElementById('db_host').value = '';
-            if (document.getElementById('db_port')) document.getElementById('db_port').value = '';
-            if (document.getElementById('db_user')) document.getElementById('db_user').value = '';
-            if (document.getElementById('db_pass')) document.getElementById('db_pass').value = '';
-
-            // 2. Target sections / dropdowns ko hide aur empty karein
-            const dbDropdownContainer = document.getElementById('db-dropdown-container');
-            if (dbDropdownContainer) dbDropdownContainer.classList.add('hidden');
-
-            const tablesContainer = document.getElementById('tables-container');
-            if (tablesContainer) tablesContainer.classList.add('hidden');
-
-            const tablesList = document.getElementById('tables-list');
-            if (tablesList) tablesList.innerHTML = '';
-
-            const dbSelect = document.getElementById('db-select');
-            if (dbSelect) dbSelect.innerHTML = '';
-
-            // 3. Global variable reset karein
-            currentDB = '';
-        } else {
-            alert(data.message);
-        }
-    } catch (err) { 
-        alert('Sync Failed: Check server logs'); 
-    }
-}
-
-        function trainAIModel() {
-            document.getElementById('ai-model-status').innerHTML = `<span class="w-2 h-2 rounded-full bg-nwebCyan animate-ping"></span> Trained on ${currentDB}`;
-            alert(`AI Model successfully trained on [${currentDB}] context!`);
-        }
-
-        // add Provider Functionality for Agents Models Selected Api key 
-            const modelsByProvider = {
-                openai: [
-                    "gpt-4o-mini", 
-                    "gpt-4o"
-                ],
-                groq: [
-                    "openai/gpt-oss-20b",    // Tez aur efficient tasks ke liye
-                    "openai/gpt-oss-120b",   // Heavy coding aur reasoning ke liye
-                    "qwen/qwen3.8-27b"       // Vision/Images aur thinking mode ke liye
-                ],
-                gemini: [
-                    "gemini-2.5-flash", 
-                    "gemini-2.5-pro"
-                ]
-            };
-
-
-            const providerSelect = document.getElementById('providerSelect');
-            const modelSelect = document.getElementById('modelSelect');
-
-            function updateModels() {
-                const provider = providerSelect.value;
-                modelSelect.innerHTML = '';
-                
-                if (modelsByProvider[provider]) {
-                    modelsByProvider[provider].forEach(model => {
-                        const opt = document.createElement('option');
-                        opt.value = model;
-                        opt.textContent = model;
-                        modelSelect.appendChild(opt);
-                    });
-                }
+            if (selectedTables.length === 0) {
+                return alert('Please select at least 1 column/table to proceed.');
             }
 
-            providerSelect.addEventListener('change', updateModels);
-            // Page load hone par default models load karne ke liye
-            updateModels();
+            if (fileInput) {
+                formData.append('excelFile', fileInput);
+                selectedTables.forEach(t => formData.append('selectedTables[]', t));
+            } else if (sourceTypeName === 'googlesheet' || sheetUrlVal) {
+                if (!sheetUrlVal) return alert('Please enter a Google Sheet URL first.');
+                formData.append('googleSheetUrl', sheetUrlVal);
+                selectedTables.forEach(t => formData.append('selectedTables[]', t));
+            } else {
+                if (!currentDB || selectedTables.length === 0) return alert('Select Database and at least 1 table');
 
-        // Agent Setup & Token Authentication Check
+                formData.append('host', document.getElementById('db_host').value);
+                formData.append('port', document.getElementById('db_port').value);
+                formData.append('user', document.getElementById('db_user').value);
+                formData.append('password', document.getElementById('db_pass').value);
+                formData.append('database', currentDB);
+                selectedTables.forEach(t => formData.append('selectedTables[]', t));
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/save-setup`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Setup successfully saved to User Profile!');
+
+                    if (document.getElementById('googleSheetUrl')) document.getElementById('googleSheetUrl').value = '';
+                    if (document.getElementById('excelFile')) document.getElementById('excelFile').value = '';
+
+                    if (document.getElementById('db_host')) document.getElementById('db_host').value = '';
+                    if (document.getElementById('db_port')) document.getElementById('db_port').value = '';
+                    if (document.getElementById('db_user')) document.getElementById('db_user').value = '';
+                    if (document.getElementById('db_pass')) document.getElementById('db_pass').value = '';
+
+                    if (document.getElementById('db-dropdown-container')) document.getElementById('db-dropdown-container').classList.add('hidden');
+                    if (document.getElementById('tables-container')) document.getElementById('tables-container').classList.add('hidden');
+                    if (document.getElementById('tables-list')) document.getElementById('tables-list').innerHTML = '';
+                    if (document.getElementById('db-select')) document.getElementById('db-select').innerHTML = '';
+
+                    currentDB = '';
+                } else {
+                    alert(data.message);
+                }
+            } catch (err) { 
+                alert('Sync Failed: Check server logs'); 
+            }
+        }
+
+        function trainAIModel() {
+            document.getElementById('ai-model-status').innerHTML = `<span class="w-2 h-2 rounded-full bg-nwebCyan animate-ping"></span> Trained on ${currentDB || 'Selected Context'}`;
+            alert(`AI Model successfully trained on context!`);
+        }
+
+        const modelsByProvider = {
+            openai: ["gpt-4o-mini", "gpt-4o"],
+            groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"],
+            gemini: ["gemini-2.5-flash", "gemini-2.5-pro"]
+        };
+
+        const providerSelect = document.getElementById('providerSelect');
+        const modelSelect = document.getElementById('modelSelect');
+
+        function updateModels() {
+            const provider = providerSelect.value;
+            modelSelect.innerHTML = '';
+            
+            if (modelsByProvider[provider]) {
+                modelsByProvider[provider].forEach(model => {
+                    const opt = document.createElement('option');
+                    opt.value = model;
+                    opt.textContent = model;
+                    modelSelect.appendChild(opt);
+                });
+            }
+        }
+
+        providerSelect.addEventListener('change', updateModels);
+        updateModels();
+
+        // 🟢 DYNAMIC AGENT CHECK & SUBSCRIPTION STATE ENFORCER
         async function checkExistingAgent() {
             const token = localStorage.getItem('token');
             if (!token) return;
@@ -701,6 +956,8 @@ const data = await res.json();
 
                 if (data.exists && data.agent) {
                     showCDNSection(data.agent);
+                    applyPlanUIState(data.agent);
+                    fetchEnterpriseChatAnalytics(data.agent._id);
                 } else {
                     document.getElementById('agentFormSection').classList.remove('hidden');
                     document.getElementById('agentCDNSection').classList.add('hidden');
@@ -710,11 +967,171 @@ const data = await res.json();
             }
         }
 
-        function toggleApiKeyInput() {
-            const check = document.getElementById('useOwnApiKeyCheck');
-            const input = document.getElementById('customApiKey');
-            input.disabled = check.checked;
-            if (check.checked) input.value = '';
+        // 🟢 SIDEBAR & TOP ALERT BANNER LOGIC (EXPIRED VS PENDING APPROVAL)
+        // 🟢 SIDEBAR & TOP ALERT BANNER LOGIC (LOCKED UNTIL FULLY APPROVED & ACTIVE)
+        // 🟢 UPDATED applyPlanUIState with Button Label Change for Pending Plan
+        function applyPlanUIState(agent) {
+            const navOverview = document.getElementById('nav-overview');
+            const navDbSetup = document.getElementById('nav-db-setup');
+            const navAgentGen = document.getElementById('nav-agent-gen');
+            const navRecentSetups = document.getElementById('nav-recent-setups');
+            const navChatWorkspace = document.getElementById('nav-chat-workspace');
+            const navPlansTab = document.getElementById('nav-plans-tab');
+            const topAlertBanner = document.getElementById('top-alert-banner');
+            const bannerTitle = document.getElementById('alert-banner-title');
+            const bannerDesc = document.getElementById('alert-banner-desc');
+            const bannerBadge = document.getElementById('alert-badge-status');
+            const bannerIcon = document.getElementById('alert-banner-icon');
+
+            // Plan Cards Buttons (Get references or query them)
+            const planButtons = document.querySelectorAll('#plans-tab button');
+
+            // 1. Pending Approval State
+            if (agent.planStatus === 'pending_approval') {
+                topAlertBanner.classList.remove('hidden');
+                topAlertBanner.className = "mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-between animate-pulse";
+                bannerIcon.className = "fa-solid fa-circle-notch fa-spin text-xl";
+                bannerTitle.innerText = "Payment Under Review!";
+                bannerDesc.innerText = "Aapka payment/upgrade request submit ho chuki hai. Please wait 24 hours, admin jald hi aapka plan approve kar dega.";
+                bannerBadge.innerText = `TXN: ${agent.pendingPaymentDetails?.transactionId || '#PENDING'}`;
+
+                // Lock Sidebar
+                if (navDbSetup) navDbSetup.style.display = 'none';
+                if (navAgentGen) navAgentGen.style.display = 'none';
+                if (navRecentSetups) navRecentSetups.style.display = 'none';
+                if (navChatWorkspace) navChatWorkspace.style.display = 'none';
+                if (navPlansTab) navPlansTab.style.display = 'flex';
+
+                // 🟢 Update Plan Buttons on Plans Page
+                const requestedPlan = agent.pendingPaymentDetails?.requestedPlan; // 'basic', 'silver', 'golden'
+                
+                planButtons.forEach(btn => {
+                    // Skip free plan button since it's already disabled
+                    if (btn.id === 'btn-free-plan') return;
+
+                    const onclickAttr = btn.getAttribute('onclick') || '';
+                    if (onclickAttr.includes(requestedPlan)) {
+                        btn.innerText = "⏳ Pending Approval";
+                        btn.className = "w-full py-3 bg-amber-500/20 text-amber-500 font-bold rounded-xl text-xs cursor-not-allowed border border-amber-500/40";
+                        btn.disabled = true;
+                    } else {
+                        btn.innerText = "Unavailable (Request Pending)";
+                        btn.className = "w-full py-3 bg-slate-200 dark:bg-slate-800 text-slate-400 font-bold rounded-xl text-xs cursor-not-allowed";
+                        btn.disabled = true;
+                    }
+                });
+            } 
+            // 2. Expired State
+            else if (agent.planStatus === 'expired') {
+                topAlertBanner.classList.remove('hidden');
+                topAlertBanner.className = "mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-500 flex items-center justify-between animate-pulse";
+                bannerIcon.className = "fa-solid fa-triangle-exclamation text-xl";
+                bannerTitle.innerText = "Plan Expired Notice!";
+                bannerDesc.innerText = "⚠️ Aapka plan expire ho chuka hai. AI chat service continue rakhne ke liye please jaldi se koi plan purchase karein.";
+                bannerBadge.innerText = "EXPIRED";
+
+                // Lock Sidebar
+                if (navDbSetup) navDbSetup.style.display = 'none';
+                if (navAgentGen) navAgentGen.style.display = 'none';
+                if (navRecentSetups) navRecentSetups.style.display = 'none';
+                if (navChatWorkspace) navChatWorkspace.style.display = 'none';
+                if (navPlansTab) navPlansTab.style.display = 'flex';
+            } 
+            // 3. Active State
+            else {
+                topAlertBanner.classList.add('hidden');
+                if (navDbSetup) navDbSetup.style.display = 'flex';
+                if (navAgentGen) navAgentGen.style.display = 'flex';
+                if (navRecentSetups) navRecentSetups.style.display = 'flex';
+                if (navChatWorkspace) navChatWorkspace.style.display = 'flex';
+                if (navPlansTab) navPlansTab.style.display = 'none';
+            }
+
+            renderAgentHeaderWidgets(agent);
+        }
+
+        // 🟢 DYNAMIC HEADER BOXES IN AI AGENT GENERATOR
+        function renderAgentHeaderWidgets(agent) {
+            const container = document.getElementById('agent-header-widgets');
+            if (!container) return;
+
+            let thirdBoxHTML = '';
+            if (agent.planType === 'golden') {
+                const start = agent.planStartDate ? new Date(agent.planStartDate).toLocaleDateString() : 'N/A';
+                const end = agent.planEndDate ? new Date(agent.planEndDate).toLocaleDateString() : 'N/A';
+                thirdBoxHTML = `
+                    <div class="bg-lightCard dark:bg-darkCard p-4 rounded-xl border border-lightBorder dark:border-darkBorder">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold">Billing Cycle</span>
+                        <div class="text-xs font-bold text-slate-900 dark:text-white mt-1">${start} - ${end}</div>
+                        <span class="text-[10px] text-amber-500 mt-1 block font-semibold">Month-Wise Subscription Active</span>
+                    </div>
+                `;
+            } else {
+                thirdBoxHTML = `
+                    <div class="bg-lightCard dark:bg-darkCard p-4 rounded-xl border border-lightBorder dark:border-darkBorder">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold">Message Quota</span>
+                        <div class="text-lg font-black text-slate-900 dark:text-white mt-1">${agent.messagesUsed || 0} / ${agent.usageLimit || 15}</div>
+                        <span class="text-[10px] text-emerald-500 mt-1 block font-semibold">Message-Quota Tracking</span>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-lightCard dark:bg-darkCard p-4 rounded-xl border border-lightBorder dark:border-darkBorder">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold">API Key Status</span>
+                        <div class="text-xs font-bold text-emerald-500 mt-1 flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Key Valid & Secure
+                        </div>
+                    </div>
+                    <div class="bg-lightCard dark:bg-darkCard p-4 rounded-xl border border-lightBorder dark:border-darkBorder">
+                        <span class="text-[10px] text-slate-400 uppercase font-bold">Current Active Plan</span>
+                        <div class="text-lg font-black text-nwebCyan uppercase mt-1">${agent.planType || 'Free Ha'} Plan</div>
+                    </div>
+                    ${thirdBoxHTML}
+                </div>
+            `;
+        }
+
+        // 🟢 FAKE PAYMENT MODAL CONTROLS
+        function openPaymentModal(planName, price) {
+            document.getElementById('selectedPlanInput').value = planName;
+            document.getElementById('modalPlanTitle').innerText = `Checkout - ${planName.toUpperCase()} Plan (${price})`;
+            document.getElementById('paymentModal').classList.remove('hidden');
+        }
+
+        function closePaymentModal() {
+            document.getElementById('paymentModal').classList.add('hidden');
+        }
+
+        async function processFakePayment(e) {
+            e.preventDefault();
+            const plan = document.getElementById('selectedPlanInput').value;
+            const token = localStorage.getItem('token');
+
+            try {
+                const res = await fetch('http://localhost:5000/api/dashboard/request-plan-upgrade', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ requestedPlan: plan })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert("Payment submitted successfully! Waiting for admin approval.");
+                    closePaymentModal();
+                    window.location.reload();
+                } else {
+                    alert(data.message || "Failed to submit payment request.");
+                    closePaymentModal();
+                    window.location.reload();
+                }
+            } catch (err) {
+                alert("Server error during payment processing.");
+            }
         }
 
         function addRouteRow(name = '', path = '') {
@@ -722,9 +1139,9 @@ const data = await res.json();
             const div = document.createElement('div');
             div.className = 'flex gap-3 route-row';
             div.innerHTML = `
-                <input type="text" class="flex-1 route-name px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition text-sm border border-brandBorder" placeholder="Route Name" value="${name}">
-                <input type="text" class="flex-1 route-path px-4 py-2.5 bg-[#070B14] rounded-lg outline-none transition text-sm border border-brandBorder" placeholder="Route Path" value="${path}">
-                <button type="button" onclick="removeRouteRow(this)" class="px-3.5 py-2 bg-red-500 text-white rounded-lg text-sm font-bold">X</button>
+                <input type="text" class="flex-1 route-name px-4 py-2.5 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none" placeholder="Route Name" value="${name}">
+                <input type="text" class="flex-1 route-path px-4 py-2.5 bg-slate-50 dark:bg-darkBg rounded-xl border border-lightBorder dark:border-darkBorder text-xs text-slate-800 dark:text-white outline-none" placeholder="Route Path" value="${path}">
+                <button type="button" onclick="removeRouteRow(this)" class="px-3.5 py-2 bg-red-500 text-white rounded-xl text-xs font-bold">X</button>
             `;
             container.appendChild(div);
         }
@@ -743,16 +1160,16 @@ const data = await res.json();
                 if (routeName && routePath) routes.push({ routeName, routePath });
             });
 
-        const payload = {
-            agentId: document.getElementById('agentId').value,
-            agentName: document.getElementById('agentName').value,
-            businessName: document.getElementById('businessName').value,
-            businessDescription: document.getElementById('businessDescription').value,
-            provider: document.getElementById('providerSelect').value,       // 👈 Naya field (openai, groq, gemini)
-            selectedModel: document.getElementById('modelSelect').value,     // 👈 Naya field (selected model name)
-            customApiKey: document.getElementById('customApiKey').value,
-            routes: routes
-        };
+            const payload = {
+                agentId: document.getElementById('agentId').value,
+                agentName: document.getElementById('agentName').value,
+                businessName: document.getElementById('businessName').value,
+                businessDescription: document.getElementById('businessDescription').value,
+                provider: document.getElementById('providerSelect').value,
+                selectedModel: document.getElementById('modelSelect').value,
+                customApiKey: document.getElementById('customApiKey').value,
+                routes: routes
+            };
 
             const token = localStorage.getItem('token');
             try {
@@ -767,13 +1184,11 @@ const data = await res.json();
                 const data = await res.json();
 
                 if (!res.ok) {
-                    // Agar API key invalid ka error aaye toh usay error element mein show karein
-                    document.getElementById('apiKeyError').innerText = data.message || "Something went wrong!"; 
+                    document.getElementById('apiKeyError').innerText = data.message || "Error saving agent setup."; 
                 } else {
                     alert(data.message);
-                    checkExistingAgent()
+                    checkExistingAgent();
                     window.location.reload();
-                    // Success hone par form reset ya redirecting logic yahan laga sakte hain
                 }
             } catch (err) {
                 alert('Server error occurred');
@@ -784,13 +1199,13 @@ const data = await res.json();
             document.getElementById('agentFormSection').classList.add('hidden');
             document.getElementById('agentCDNSection').classList.remove('hidden');
 
-            document.getElementById('cdnScriptText').value = `<script src="https://agentic-ai-website-driver.vercel.app/widget.js" data-agent-id="${agent._id}" async><\/script>`;
-            document.getElementById('planBadge').innerText = `Plan: ${agent.plan || 'Free Tier'}`;
+            document.getElementById('cdnScriptText').value = `<script src="http://localhost:5000/widget.js" data-agent-id="${agent._id}" async><\/script>`;
+            document.getElementById('planBadge').innerText = `Plan: ${agent.planType ? agent.planType.toUpperCase() : 'FREE'} Tier`;
             document.getElementById('messagesUsedCount').innerText = agent.messagesUsed || 0;
-            document.getElementById('maxMessagesLimit').innerText = agent.usageLimit || 50;
+            document.getElementById('maxMessagesLimit').innerText = agent.usageLimit || 15;
 
-            const percentage = ((agent.messagesUsed || 0) / (agent.usageLimit || 50)) * 100;
-            document.getElementById('usageProgressBar').style.width = `${percentage}%`;
+            const percentage = ((agent.messagesUsed || 0) / (agent.usageLimit || 15)) * 100;
+            document.getElementById('usageProgressBar').style.width = `${Math.min(percentage, 100)}%`;
         }
 
         async function editAssistant() {
@@ -801,26 +1216,36 @@ const data = await res.json();
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
+                
                 if (data.exists) {
                     const agent = data.agent;
+                    
                     document.getElementById('agentId').value = agent._id;
-                    document.getElementById('agentName').value = agent.agentName;
-                    document.getElementById('businessName').value = agent.businessName;
-                    document.getElementById('businessDescription').value = agent.businessDescription;
+                    document.getElementById('agentName').value = agent.agentName || '';
+                    document.getElementById('businessName').value = agent.businessName || '';
+                    document.getElementById('businessDescription').value = agent.businessDescription || '';
                     document.getElementById('customApiKey').value = agent.customApiKey || '';
-                    document.getElementById('useOwnApiKeyCheck').checked = (agent.apiKeyOption === 'system');
-                    toggleApiKeyInput();
-
-                    const container = document.getElementById('routesContainer');
-                    container.innerHTML = '';
-                    if (agent.routes && agent.routes.length > 0) {
-                        agent.routes.forEach(r => addRouteRow(r.routeName, r.routePath));
-                    } else {
-                        addRouteRow();
+                    
+                    const providerSelect = document.getElementById('providerSelect');
+                    if (providerSelect && agent.provider) {
+                        providerSelect.value = agent.provider;
+                        if (typeof updateModels === 'function') {
+                            updateModels(); 
+                        }
                     }
 
-                    document.getElementById('agentCDNSection').classList.add('hidden');
-                    document.getElementById('agentFormSection').classList.remove('hidden');
+                    setTimeout(() => {
+                        const modelSelect = document.getElementById('modelSelect');
+                        if (modelSelect && agent.selectedModel) {
+                            modelSelect.value = agent.selectedModel;
+                        }
+                    }, 100);
+
+                    const cdnSection = document.getElementById('agentCDNSection');
+                    if (cdnSection) cdnSection.classList.add('hidden');
+
+                    const formSection = document.getElementById('agentFormSection');
+                    if (formSection) formSection.classList.remove('hidden');
                 }
             } catch (err) {
                 console.error('Edit fetch error:', err);
@@ -836,7 +1261,7 @@ const data = await res.json();
 
         async function fetchRecentSetups() {
             const tbody = document.getElementById('recent-setups-body');
-            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">Loading...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">Loading setups...</td></tr>`;
             const token = localStorage.getItem('token');
             try {
                 const res = await fetch(`${API_BASE}/recent-setups`, {
@@ -847,19 +1272,19 @@ const data = await res.json();
                     tbody.innerHTML = '';
                     data.setups.forEach(s => {
                         tbody.innerHTML += `
-                            <tr class="hover:bg-slate-800/40 transition">
+                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
                                 <td class="p-4 font-mono text-[10px] text-slate-400">${s._id}</td>
-                                <td class="p-4 font-bold text-white">${s.dbName || s.sourceName}</td>
-                                <td class="p-4 text-slate-300">Synced Tables</td>
+                                <td class="p-4 font-bold text-slate-900 dark:text-white">${s.dbName || s.sourceName}</td>
+                                <td class="p-4 text-slate-600 dark:text-slate-300">Synced Tables/Columns</td>
                                 <td class="p-4 text-slate-400">${new Date(s.createdAt).toLocaleString()}</td>
                                 <td class="p-4 text-right">
-                                    <span class="text-xs text-nwebCyan">Active User Profile</span>
+                                    <span class="text-xs text-nwebCyan font-bold">Active User Profile</span>
                                 </td>
                             </tr>
                         `;
                     });
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No database setups found for this user.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">No database setups found.</td></tr>`;
                 }
             } catch (e) {
                 tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400">Error loading setups.</td></tr>`;
@@ -878,6 +1303,9 @@ const data = await res.json();
                     document.getElementById('stat-total-tables').innerText = data.totalTablesCount || 0;
                     document.getElementById('stat-total-rows').innerText = data.totalSyncedRows || 0;
                     document.getElementById('stat-most-used').innerText = data.mostUsedDB || "MySQL / Sheets";
+                    document.getElementById('lbl-active-db').innerHTML = data.mostUsedDB || 'None';
+                    document.getElementById('lbl-active-tables').innerHTML = data.totalTablesCount || 0;
+                    document.getElementById('lbl-local-status').innerHTML = data.mostUsedDB ? "Connected" : "Not Connected";
                 }
             } catch (e) {}
         }
@@ -889,8 +1317,8 @@ const data = await res.json();
                 data: {
                     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
                     datasets: [{
-                        label: 'Queries',
-                        data: [10, 22, 18, 30, 25, 40, 55],
+                        label: 'Queries & Sync Events',
+                        data: [14, 28, 22, 38, 32, 48, 62],
                         borderColor: '#00B4D8',
                         tension: 0.4,
                         fill: false
@@ -903,14 +1331,107 @@ const data = await res.json();
             new Chart(ctx2, {
                 type: 'doughnut',
                 data: {
-                    labels: ['SQL Database', 'Google Sheets', 'Local Excel'],
+                    labels: ['Direct Web', 'Embedded Widget', 'Organic / Search'],
                     datasets: [{
-                        data: [60, 30, 10],
+                        data: [55, 30, 15],
                         backgroundColor: ['#0077B6', '#00B4D8', '#10B981']
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false }
             });
+        }
+
+        async function fetchEnterpriseChatAnalytics(agentId) {
+            if (!agentId) return;
+            try {
+                const res = await fetch(`http://localhost:5000/api/dashboard/chat-analytics/${agentId}`);
+                const data = await res.json();
+                if (res.ok && data.sessions) {
+                    document.getElementById('dashboard-avg-duration').innerText = `${data.avgDurationMinutes} mins`;
+                    document.getElementById('stat-avg-duration').innerText = `${data.avgDurationMinutes}m`;
+                    document.getElementById('stat-total-chats').innerText = data.totalChats || 0;
+
+                    const tbody = document.getElementById('enterprise-analytics-tbody');
+                    tbody.innerHTML = '';
+
+                    if (data.sessions.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">No chat sessions recorded for this agent yet.</td></tr>`;
+                        return;
+                    }
+
+                    data.sessions.forEach(s => {
+                        tbody.innerHTML += `
+                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                                <td class="p-3.5 font-mono text-[11px] text-nwebCyan">${s.visitorId}</td>
+                                <td class="p-3.5 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                    <i class="fa-solid fa-location-dot text-red-500"></i> ${s.destination}
+                                </td>
+                                <td class="p-3.5 font-semibold text-slate-600 dark:text-slate-300">${s.chatDurationSeconds} seconds</td>
+                                <td class="p-3.5 text-slate-500">${s.messageCount} msgs</td>
+                                <td class="p-3.5 text-right text-slate-400">${new Date(s.createdAt).toLocaleString()}</td>
+                                <td class="p-3.5 text-right">
+                                <button onclick="viewChatHistory('${s.visitorId}')" class="px-3 py-1 bg-nwebCyan/10 text-nwebCyan hover:bg-nwebCyan hover:text-slate-950 font-bold rounded-lg text-xs transition">
+                                    <i class="fa-solid fa-clock-rotate-left mr-1"></i> View History
+                                </button>
+                            </td>
+                            </tr>
+                        `;
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to load analytics data:", err);
+            }
+        }
+
+        async function viewChatHistory(visitorId) {
+            const modal = document.getElementById('chatHistoryModal');
+            const contentDiv = document.getElementById('modalChatContent');
+            const titleEl = document.getElementById('modalVisitorTitle');
+            const metaEl = document.getElementById('modalVisitorMeta');
+
+            modal.classList.remove('hidden');
+            contentDiv.innerHTML = `<div class="text-center text-slate-400 py-6">Loading conversation history...</div>`;
+            
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`http://localhost:5000/api/dashboard/lead-history/${visitorId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                if (res.ok && data.lead) {
+                    const lead = data.lead;
+                    titleEl.innerText = lead.name ? `Lead: ${lead.name}` : `Visitor Session`;
+                    metaEl.innerText = `Email: ${lead.email || 'Not Registered'} | Phone: ${lead.phone || 'Not Registered'}`;
+
+                    if (!lead.chatHistory || lead.chatHistory.length === 0) {
+                        contentDiv.innerHTML = `<div class="text-center text-slate-400 py-6">No chat messages found for this visitor.</div>`;
+                        return;
+                    }
+
+                    contentDiv.innerHTML = '';
+                    lead.chatHistory.forEach(h => {
+                        const isUser = h.sender === 'user';
+                        contentDiv.innerHTML += `
+                            <div class="flex flex-col ${isUser ? 'items-end' : 'items-start'}">
+                                <div class="max-w-[85%] p-3 rounded-xl text-xs ${isUser ? 'bg-nwebCyan text-slate-950 font-semibold' : 'bg-slate-800 text-slate-200 border border-slate-700'}">
+                                    <span class="block font-bold text-[9px] opacity-70 mb-1">${isUser ? 'Visitor' : 'AI Assistant'} • ${new Date(h.timestamp).toLocaleTimeString()}</span>
+                                    <p class="leading-relaxed">${h.message}</p>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    contentDiv.innerHTML = `<div class="text-center text-red-400 py-6">${data.message || 'History not found.'}</div>`;
+                }
+            } catch (err) {
+                console.error("History fetch error:", err);
+                contentDiv.innerHTML = `<div class="text-center text-red-400 py-6">Server error loading history.</div>`;
+            }
+        }
+
+        function closeChatModal() {
+            document.getElementById('chatHistoryModal').classList.add('hidden');
         }
     </script>
 </body>

@@ -1,6 +1,13 @@
 const AgentSetup = require('../models/AgentSetup');
+
+const xlsx = require('xlsx');
 const axios = require('axios');
 
+
+
+
+
+// 🟢 2. Fetch Columns Route (Headers extraction)
 async function validateApiKey(provider, apiKey) {
     try {
         if (!apiKey || apiKey.trim() === '') return false;
@@ -29,7 +36,7 @@ async function validateApiKey(provider, apiKey) {
 // Create or Update AI Agent Config (With Google Sheets & Excel Support)
 const saveOrUpdateAgent = async (req, res) => {
     try {
-        const { 
+        let { 
             agentId, agentName, businessName, businessDescription, 
             dataSourceType, googleSheetUrl, excelFileName, selectedSheetsOrTables, 
             provider, selectedModel, customApiKey, routes 
@@ -52,25 +59,47 @@ const saveOrUpdateAgent = async (req, res) => {
             });
         }
 
+        // FormData barobar single ya multi-array columns parse karne
+        if (typeof selectedSheetsOrTables === 'string') {
+            try {
+                selectedSheetsOrTables = JSON.parse(selectedSheetsOrTables);
+            } catch (e) {
+                selectedSheetsOrTables = [selectedSheetsOrTables];
+            }
+        }
+
         const userId = req.user.id;
         let agent;
+
+        // Domain Dynamic URL (Production Deployment ready)
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 
         if (agentId) {
             agent = await AgentSetup.findOneAndUpdate(
                 { _id: agentId, userId },
-                { agentName, businessName, businessDescription, dataSourceType, googleSheetUrl, excelFileName, selectedSheetsOrTables, provider, selectedModel, customApiKey, routes },
+                { 
+                    agentName, businessName, businessDescription, 
+                    dataSourceType, googleSheetUrl, excelFileName, 
+                    selectedSheetsOrTables, provider, selectedModel, 
+                    customApiKey, routes 
+                },
                 { new: true }
             );
         } else {
             agent = await AgentSetup.create({
-                userId, agentName, businessName, businessDescription, dataSourceType, googleSheetUrl, excelFileName, selectedSheetsOrTables, provider, selectedModel, customApiKey, routes
+                userId, agentName, businessName, businessDescription, 
+                dataSourceType, googleSheetUrl, excelFileName, 
+                selectedSheetsOrTables, provider, selectedModel, 
+                customApiKey, routes
             });
-            agent.widgetScriptUrl = `<script src="http://localhost:5000/widget.js" data-agent-id="${agent._id}" async></script>`;
+
+            agent.widgetScriptUrl = `<script src="${baseUrl}/widget.js" data-agent-id="${agent._id}" async></script>`;
             await agent.save();
         }
 
         return res.status(200).json({ success: true, message: "Agent saved successfully!", agent });
     } catch (error) {
+        console.error("Save Agent Error:", error);
         return res.status(500).json({ success: false, message: error.message });
     }
 };

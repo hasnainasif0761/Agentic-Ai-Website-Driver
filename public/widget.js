@@ -11,14 +11,24 @@
         return;
     }
 
-    const BACKEND_URL = "https://agentic-ai-website-driver.vercel.app";
+    const BACKEND_URL = "http://localhost:5000";
 
     let agentData = null;
     let activeTab = 'chat';
     let isCallActive = false;
     let recognition = null;
 
-    // CSS Styling
+    // 🟢 DYNAMIC TRACKING: Unique Visitor ID & Session Start Time
+    let visitorId = localStorage.getItem('nweb_visitor_id');
+    if (!visitorId) {
+        visitorId = 'visitor_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('nweb_visitor_id', visitorId);
+    }
+    const sessionStartTime = Date.now();
+
+    // ==========================================
+    // 1. CSS STYLING INJECTION
+    // ==========================================
     const style = document.createElement('style');
     style.innerHTML = `
         #nweb-widget-container {
@@ -204,7 +214,9 @@
     `;
     document.head.appendChild(style);
 
-    // Widget HTML Structure
+    // ==========================================
+    // 2. WIDGET HTML STRUCTURE
+    // ==========================================
     const widgetContainer = document.createElement('div');
     widgetContainer.id = 'nweb-widget-container';
     widgetContainer.innerHTML = `
@@ -219,6 +231,7 @@
             <div class="nweb-tabs">
                 <button class="nweb-tab-btn active" id="nweb-tab-chat-btn">💬 Chat</button>
                 <button class="nweb-tab-btn" id="nweb-tab-voice-btn">🎙️ Voice Call</button>
+                <button class="nweb-tab-btn" id="nweb-tab-form-btn">📋 Form</button>
             </div>
             
             <!-- CHAT SECTION -->
@@ -243,11 +256,86 @@
                     </div>
                 </div>
             </div>
+
+            <!-- FORM SECTION -->
+            <div class="nweb-content-section" id="nweb-section-form" style="display:none; padding:15px;">
+                <form id="nweb-lead-form" style="display:flex; flex-direction:column; gap:12px;">
+                    <h4 style="color:#00B4D8; margin:0; font-size:14px;">Customer Registration</h4>
+                    <input type="text" id="nweb-lead-name" placeholder="Full Name" required style="padding:10px; background:#070B14; border:1px solid #1E293B; color:white; border-radius:8px; outline:none; font-size:12px;" />
+                    <input type="email" id="nweb-lead-email" placeholder="Email Address" required style="padding:10px; background:#070B14; border:1px solid #1E293B; color:white; border-radius:8px; outline:none; font-size:12px;" />
+                    <input type="tel" id="nweb-lead-phone" placeholder="Phone Number" required style="padding:10px; background:#070B14; border:1px solid #1E293B; color:white; border-radius:8px; outline:none; font-size:12px;" />
+                    <button type="submit" style="padding:10px; background:#00B4D8; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Register Now</button>
+                    <small id="nweb-form-msg" style="font-size:11px; text-align:center;"></small>
+                </form>
+            </div>
         </div>
     `;
     document.body.appendChild(widgetContainer);
 
-    // Fetch Agent Details
+    // ==========================================
+    // 3. DOM ELEMENTS & TAB SWITCHING LOGIC
+    // ==========================================
+    const toggleBtn = document.getElementById('nweb-widget-toggle-btn');
+    const widgetBox = document.getElementById('nweb-widget-box');
+    const closeBtn = document.getElementById('nweb-close-btn');
+
+    const chatTabBtn = document.getElementById('nweb-tab-chat-btn');
+    const voiceTabBtn = document.getElementById('nweb-tab-voice-btn');
+    const formTabBtn = document.getElementById('nweb-tab-form-btn');
+
+    const chatSection = document.getElementById('nweb-section-chat');
+    const voiceSection = document.getElementById('nweb-section-voice');
+    const formSection = document.getElementById('nweb-section-form');
+
+    toggleBtn.addEventListener('click', () => {
+        const isHidden = widgetBox.style.display === 'none' || widgetBox.style.display === '';
+        widgetBox.style.display = isHidden ? 'flex' : 'none';
+    });
+
+    closeBtn.addEventListener('click', () => {
+        widgetBox.style.display = 'none';
+        if (isCallActive) endVoiceCall();
+    });
+
+    // Tab Switch Handlers
+    chatTabBtn.addEventListener('click', () => {
+        activeTab = 'chat';
+        chatTabBtn.classList.add('active');
+        voiceTabBtn.classList.remove('active');
+        formTabBtn.classList.remove('active');
+        
+        chatSection.style.display = 'flex';
+        voiceSection.style.display = 'none';
+        formSection.style.display = 'none';
+    });
+
+    voiceTabBtn.addEventListener('click', () => {
+        activeTab = 'voice';
+        voiceTabBtn.classList.add('active');
+        chatTabBtn.classList.remove('active');
+        formTabBtn.classList.remove('active');
+        
+        voiceSection.style.display = 'flex';
+        chatSection.style.display = 'none';
+        formSection.style.display = 'none';
+    });
+
+    if (formTabBtn) {
+        formTabBtn.addEventListener('click', () => {
+            activeTab = 'form';
+            formTabBtn.classList.add('active');
+            chatTabBtn.classList.remove('active');
+            voiceTabBtn.classList.remove('active');
+            
+            formSection.style.display = 'flex';
+            chatSection.style.display = 'none';
+            voiceSection.style.display = 'none';
+        });
+    }
+
+    // ==========================================
+    // 4. API CALLS (AGENT DATA & CHAT REPLY)
+    // ==========================================
     async function fetchAgentData() {
         try {
             const res = await fetch(`${BACKEND_URL}/api/public/agent/${agentId}`);
@@ -263,62 +351,35 @@
     }
     fetchAgentData();
 
-    // Toggle Box & Tabs
-    const toggleBtn = document.getElementById('nweb-widget-toggle-btn');
-    const widgetBox = document.getElementById('nweb-widget-box');
-    const closeBtn = document.getElementById('nweb-close-btn');
-
-    toggleBtn.addEventListener('click', () => {
-        const isHidden = widgetBox.style.display === 'none' || widgetBox.style.display === '';
-        widgetBox.style.display = isHidden ? 'flex' : 'none';
-    });
-
-    closeBtn.addEventListener('click', () => {
-        widgetBox.style.display = 'none';
-        if (isCallActive) endVoiceCall();
-    });
-
-    const chatTabBtn = document.getElementById('nweb-tab-chat-btn');
-    const voiceTabBtn = document.getElementById('nweb-tab-voice-btn');
-    const chatSection = document.getElementById('nweb-section-chat');
-    const voiceSection = document.getElementById('nweb-section-voice');
-
-    chatTabBtn.addEventListener('click', () => {
-        activeTab = 'chat';
-        chatTabBtn.classList.add('active');
-        voiceTabBtn.classList.remove('active');
-        chatSection.style.display = 'flex';
-        voiceSection.style.display = 'none';
-    });
-
-    voiceTabBtn.addEventListener('click', () => {
-        activeTab = 'voice';
-        voiceTabBtn.classList.add('active');
-        chatTabBtn.classList.remove('active');
-        voiceSection.style.display = 'flex';
-        chatSection.style.display = 'none';
-    });
-
-    // Helper: Sirf AI response fetch karne ke liye (Chat history mein add nahi karega agar zaroorat na ho)
+// 🟢 UPDATED: fetchAIReply function jo 403 / error limits par bhi reply show karega
     async function fetchAIReply(userText) {
         try {
+            const currentDurationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
             const res = await fetch(`${BACKEND_URL}/api/public/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ agentId: agentId, message: userText })
+                body: JSON.stringify({ 
+                    agentId: agentId, 
+                    message: userText,
+                    visitorId: visitorId,
+                    duration: currentDurationSeconds 
+                })
             });
             const data = await res.json();
-            if (res.ok && data.reply) {
+            
+            // 🟢 Agar server ne reply bheja hai (chahe limit error 403 hi ho), toh usay return karein
+            if (data && data.reply) {
                 return data.reply;
             }
         } catch (err) {
-            console.log(err)
-            console.error(err);
+            console.error("Fetch AI Reply Error:", err);
         }
         return null;
     }
 
-    // Chat Tab Message Logic
+    // ==========================================
+    // 5. CHAT FUNCTIONALITY
+    // ==========================================
     async function handleChatSend() {
         const input = document.getElementById('nweb-chat-input');
         const userText = input.value.trim();
@@ -328,6 +389,7 @@
         input.value = '';
 
         const reply = await fetchAIReply(userText);
+        console.log("Ya Error ka reply ha",reply)
         if (reply) {
             appendMessage(reply, 'bot');
         } else {
@@ -349,7 +411,9 @@
         if (e.key === 'Enter') handleChatSend();
     });
 
-    // Voice Call Logic (Separate from Chat Section)
+    // ==========================================
+    // 6. VOICE CALL FUNCTIONALITY
+    // ==========================================
     const startCallBtn = document.getElementById('nweb-start-call-btn');
     const endCallBtn = document.getElementById('nweb-end-call-btn');
     const voiceStatus = document.getElementById('nweb-voice-status');
@@ -428,7 +492,6 @@
                 voiceStatus.innerText = "Please listen... (AI processing)";
                 voiceTranscript.innerText = `You: "${userSpeech}"`;
 
-                // Sirf API se reply lenge, chat section mein kuch add nahi hoga
                 fetchAIReply(userSpeech).then((aiReply) => {
                     if (aiReply && isCallActive) {
                         voiceStatus.innerText = "AI speaking...";
@@ -483,5 +546,44 @@
         } else {
             if (onComplete) onComplete();
         }
+    }
+
+    // ==========================================
+    // 7. LEAD REGISTRATION FORM SUBMISSION
+    // ==========================================
+    const leadForm = document.getElementById('nweb-lead-form');
+    if (leadForm) {
+        leadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('nweb-lead-name').value;
+            const email = document.getElementById('nweb-lead-email').value;
+            const phone = document.getElementById('nweb-lead-phone').value;
+            const msgTag = document.getElementById('nweb-form-msg');
+
+            msgTag.innerText = "Registering...";
+            msgTag.style.color = "#00B4D8";
+
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/public/register-lead`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentId, visitorId, name, email, phone })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    msgTag.innerText = "Registered successfully! Switched to Chat...";
+                    msgTag.style.color = "#10B981";
+                    setTimeout(() => {
+                        chatTabBtn.click();
+                    }, 1000);
+                } else {
+                    msgTag.innerText = data.message || "Registration failed";
+                    msgTag.style.color = "#EF4444";
+                }
+            } catch (err) {
+                msgTag.innerText = "Server Error";
+                msgTag.style.color = "#EF4444";
+            }
+        });
     }
 })();
