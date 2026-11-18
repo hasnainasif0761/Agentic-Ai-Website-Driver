@@ -86,12 +86,25 @@ const saveOrUpdateAgent = async (req, res) => {
                 { new: true }
             );
         } else {
-            agent = await AgentSetup.create({
-                userId, agentName, businessName, businessDescription, 
-                dataSourceType, googleSheetUrl, excelFileName, 
-                selectedSheetsOrTables, provider, selectedModel, 
-                customApiKey, routes
-            });
+            agent = await AgentSetup.findOneAndUpdate(
+                { userId },
+                {
+                    $set: {
+                        agentName,
+                        businessName,
+                        businessDescription,
+                        dataSourceType,
+                        googleSheetUrl,
+                        excelFileName,
+                        selectedSheetsOrTables,
+                        provider,
+                        selectedModel,
+                        customApiKey,
+                        routes
+                    }
+                },
+                { new: true, upsert: true, runValidators: false }
+            );
 
             agent.widgetScriptUrl = `<script src="${baseUrl}/widget.js" data-agent-id="${agent._id}" async></script>`;
             await agent.save();
@@ -112,9 +125,12 @@ const getUserAgent = async (req, res) => {
         }
 
         const agent = await AgentSetup.findOne({ userId: req.user.id });
-        if (!agent) {
+        
+        // 🟢 Check if agent exists AND has been actually configured (has description & provider)
+        if (!agent || !agent.businessDescription || !agent.provider) {
             return res.status(200).json({ exists: false });
         }
+
         return res.status(200).json({ exists: true, agent });
     } catch (error) {
         return res.status(500).json({ message: error.message });

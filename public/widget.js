@@ -11,19 +11,41 @@
         return;
     }
 
-    const BACKEND_URL = "agentic-ai-website-driver.vercel.app";
+    const BACKEND_URL = "http://localhost:5000";
 
     let agentData = null;
     let activeTab = 'chat';
     let isCallActive = false;
     let recognition = null;
 
-    // 🟢 DYNAMIC TRACKING: Unique Visitor ID & Session Start Time
+    // 🟢 DYNAMIC TRACKING: Unique Visitor ID
     let visitorId = localStorage.getItem('nweb_visitor_id');
     if (!visitorId) {
         visitorId = 'visitor_' + Math.random().toString(36).substring(2, 15);
         localStorage.setItem('nweb_visitor_id', visitorId);
     }
+    
+    // 🟢 LOCALSTORAGE LEAD PROFILE (Without Chat History)
+    const LEAD_STORAGE_KEY = `nweb_verified_lead_${agentId}`;
+    let savedLead = null;
+    try {
+        const rawLead = localStorage.getItem(LEAD_STORAGE_KEY);
+        if (rawLead) savedLead = JSON.parse(rawLead);
+    } catch (e) {
+        savedLead = null;
+    }
+
+    function saveLeadToLocalStorage(leadObj) {
+        if (!leadObj) return;
+        savedLead = {
+            _id: leadObj._id || (savedLead && savedLead._id) || null,
+            name: leadObj.name || (savedLead && savedLead.name) || '',
+            email: leadObj.email || (savedLead && savedLead.email) || '',
+            phone: leadObj.phone || (savedLead && savedLead.phone) || ''
+        };
+        localStorage.setItem(LEAD_STORAGE_KEY, JSON.stringify(savedLead));
+    }
+    
     const sessionStartTime = Date.now();
 
     // ==========================================
@@ -112,7 +134,6 @@
             flex-direction: column;
             overflow: hidden;
         }
-        /* Chat Styling */
         #nweb-chat-messages {
             flex: 1;
             padding: 15px;
@@ -166,7 +187,6 @@
             cursor: pointer;
             font-weight: 600;
         }
-        /* Voice Call Section Styling */
         #nweb-voice-section {
             display: flex;
             flex-direction: column;
@@ -297,7 +317,6 @@
         if (isCallActive) endVoiceCall();
     });
 
-    // Tab Switch Handlers
     chatTabBtn.addEventListener('click', () => {
         activeTab = 'chat';
         chatTabBtn.classList.add('active');
@@ -351,7 +370,6 @@
     }
     fetchAgentData();
 
-// 🟢 UPDATED: fetchAIReply function jo 403 / error limits par bhi reply show karega
     async function fetchAIReply(userText) {
         try {
             const currentDurationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
@@ -362,12 +380,21 @@
                     agentId: agentId, 
                     message: userText,
                     visitorId: visitorId,
+                    // 🟢 Har chat ke sath localStorage se lead details bhejein
+                    leadId: savedLead ? savedLead._id : null,
+                    name: savedLead ? savedLead.name : '',
+                    email: savedLead ? savedLead.email : '',
+                    phone: savedLead ? savedLead.phone : '',
                     duration: currentDurationSeconds 
                 })
             });
             const data = await res.json();
             
-            // 🟢 Agar server ne reply bheja hai (chahe limit error 403 hi ho), toh usay return karein
+            // 🟢 Agar backend ne lead verify/update ki hai toh usay localStorage mein save karein
+            if (data && data.lead) {
+                saveLeadToLocalStorage(data.lead);
+            }
+
             if (data && data.reply) {
                 return data.reply;
             }
@@ -389,7 +416,6 @@
         input.value = '';
 
         const reply = await fetchAIReply(userText);
-        console.log("Ya Error ka reply ha",reply)
         if (reply) {
             appendMessage(reply, 'bot');
         } else {
@@ -570,7 +596,10 @@
                     body: JSON.stringify({ agentId, visitorId, name, email, phone })
                 });
                 const data = await res.json();
-                if (res.ok) {
+                if (res.ok && data.lead) {
+                    // 🟢 Form submit hote hi lead ko localStorage mein save karein
+                    saveLeadToLocalStorage(data.lead);
+
                     msgTag.innerText = "Registered successfully! Switched to Chat...";
                     msgTag.style.color = "#10B981";
                     setTimeout(() => {

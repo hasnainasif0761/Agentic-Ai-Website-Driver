@@ -190,7 +190,7 @@
                 submitBtn.disabled = true;
                 submitBtn.innerText = "Creating Account...";
 
-                const response = await fetch('agentic-ai-website-driver.vercel.app/api/auth/registerUser', {
+                const response = await fetch('http://localhost:5000/api/auth/registerUser', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -238,7 +238,7 @@
                 submitBtn.disabled = true;
                 submitBtn.innerText = "Signing In...";
 
-                const response = await fetch('agentic-ai-website-driver.vercel.app/api/auth/login', {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

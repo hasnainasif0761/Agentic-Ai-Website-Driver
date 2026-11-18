@@ -10,6 +10,8 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 const Agentrouter = require('./routes/agentSetup.route');
 const publicRoutes = require('./routes/public.route');
+const adminRoutes = require('./routes/admin.routes');
+const Upgraderouter = require('./routes/subscription.routes')
 
 const app = express();
 const server = http.createServer(app);
@@ -21,15 +23,20 @@ const io = new Server(server, {
   }
 });
 
+
 app.use(cors())
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Public folder se static html/css/js serve karein
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/public', publicRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/auth',router)
+app.use('/api/upgrade',Upgraderouter)
 app.use('/api/dashboard',routerDash)
 app.use('/api/agentDash/',Agentrouter)
 // Fallback Route for Frontend

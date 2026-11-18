@@ -295,21 +295,25 @@ const getDashboardStats = async (req, res) => {
         let totalTables = 0;
         let totalRows = 0;
 
+        
         allSetups.forEach(setup => {
             setup.tables.forEach(t => {
                 totalTables += 1;
                 totalRows += (t.rowsData ? t.rowsData.length : 0);
             });
         });
-
+        
         const mostUsed = totalDatabases.length > 0 ? totalDatabases[0] : "N/A";
 
+        const agent = await AgentSetup.findOne({ userId });
+        
         return res.status(200).json({
             totalDatabasesCount: totalDatabases.length,
             totalTablesCount: totalTables,
             totalSyncedRows: totalRows,
             mostUsedDB: mostUsed,
-            recentActivity: allSetups.slice(0, 5)
+            recentActivity: allSetups.slice(0, 5),
+            agent: agent || null
         });
     } catch (error) {
         return res.status(500).json({ message: error.message });
@@ -412,7 +416,6 @@ const chat_analytics = async(req,res)=>{
 const getLeadHistoryByVisitor = async (req, res) => {
     try {
         const { visitorId } = req.params;
-
         const lead = await VisitorLead.findOne({ visitorId });
         
         if (!lead) {
@@ -516,4 +519,26 @@ try {
     }
 }
 
-module.exports = { connectDatabase,approvedPlanFunc,planUpgradeFunc,getLeadHistoryByVisitor,chat_analytics, handleAgentChat, saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables, handleFetchdata };
+const visitor_chat = async(req,res)=>{
+    try {
+                const { visitorId } = req.params;
+                
+                // 🟢 Check both primary visitorId and linked visitorIds array
+                const lead = await VisitorLead.findOne({ 
+                    $or: [
+                        { visitorId: visitorId },
+                        { visitorIds: visitorId }
+                    ] 
+                });
+                
+                if (!lead || !lead.chatHistory || lead.chatHistory.length === 0) {
+                    return res.status(200).json({ success: true, chatHistory: [] });
+                }
+        
+                return res.status(200).json({ success: true, chatHistory: lead.chatHistory });
+            } catch (err) {
+                return res.status(500).json({ success: false, message: err.message });
+            }
+}
+
+module.exports = { connectDatabase,visitor_chat,approvedPlanFunc,planUpgradeFunc,getLeadHistoryByVisitor,chat_analytics, handleAgentChat, saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables, handleFetchdata };
