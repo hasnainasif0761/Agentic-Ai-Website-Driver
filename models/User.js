@@ -41,17 +41,34 @@ const userSchema = new mongoose.Schema({
         default: ''
     },
     password: {
-        type: String, 
+        type: String,
         required: true
     },
     paymentHistory: [
-    {
-        planType: { type: String },
-        slip: { type: String },
-        updatedBy: { type: String, default: 'Superadmin' },
-        date: { type: Date, default: Date.now }
-    }
-],
+        {
+            planType: { type: String },
+            slip: { type: String },
+            amount: { type: Number },
+            updatedBy: { type: String, default: 'Superadmin' },
+            date: { type: Date, default: Date.now }
+        }
+    ],
+    // Login & Security Tracking Fields
+    loginCount: {
+        type: Number,
+        default: 0
+    },
+    lastLoginAt: {
+        type: Date,
+        default: null
+    },
+    loginHistory: [
+        {
+            ip: { type: String, default: 'Unknown IP' },
+            browser: { type: String, default: 'Unknown Browser' },
+            timestamp: { type: Date, default: Date.now }
+        }
+    ]
 }, { timestamps: true });
 
 const User = mongoose.model('AiUser', userSchema);

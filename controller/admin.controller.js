@@ -13,6 +13,13 @@ const PLAN_LIMITS = {
     golden: 999999
 };
 
+const PLAN_AMOUNTS = {
+    free: 0,
+    basic: 29,
+    silver: 79,
+    golden: 149
+};
+
 const AdminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -288,6 +295,119 @@ const GetAnnouncementHistory = async (req, res) => {
     }
 };
 
+const GetBusinessDetailedReport = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Explicitly exclude password and raw API key fields
+        const business = await User.findById(userId).select(
+            '-password -apiKey -openaiApiKey -groqApiKey -geminiApiKey'
+        );
+        if (!business) {
+            return res.status(404).json({ success: false, message: 'Business not found.' });
+        }
+
+        const agentSetups = await AgentSetup.find({ userId: business._id }).select(
+            '-apiKey -openaiApiKey -groqApiKey -geminiApiKey'
+        );
+
+        const rawPayments =
+            Array.isArray(business.paymentHistory) && business.paymentHistory.length > 0
+                ? business.paymentHistory
+                : business.paymentSlip
+                ? [
+                      {
+                          planType: business.planType,
+                          slip: business.paymentSlip,
+                          updatedBy: 'System',
+                          date: business.updatedAt || business.createdAt
+                      }
+                  ]
+                : [];
+
+        let totalPaidAmount = 0;
+        const paymentHistory = rawPayments.map((p) => {
+            const planKey = (p.planType || business.planType || 'basic').toLowerCase();
+            const amount = typeof p.amount === 'number' ? p.amount : (PLAN_AMOUNTS[planKey] ?? 0);
+            totalPaidAmount += amount;
+            return {
+                planType: planKey,
+                amount,
+                slip: p.slip || '',
+                updatedBy: p.updatedBy || 'Admin',
+                date: p.date || p.createdAt || new Date()
+            };
+        });
+
+        const primaryAgent = agentSetups[0] || {};
+        const dataSources = [];
+        agentSetups.forEach((setup) => {
+            if (Array.isArray(setup.dataSources)) {
+                setup.dataSources.forEach((ds) => dataSources.push(ds));
+            } else if (setup.sourceName || setup.sheetName || setup.dbType) {
+                dataSources.push(setup.sourceName || setup.sheetName || setup.dbType);
+            }
+        });
+
+        const totalMessagesUsed = agentSetups.reduce(
+            (sum, s) => sum + (s.messagesUsed || 0),
+            business.messagesUsed || 0
+        );
+        const usageLimit = primaryAgent.usageLimit ?? business.usageLimit ?? 15;
+
+        const aiSetup = {
+            aiProvider:
+                primaryAgent.aiProvider ||
+                primaryAgent.provider ||
+                business.aiProvider ||
+                'Standard AI Provider',
+            modelName: primaryAgent.modelName || primaryAgent.model || business.modelName || 'Default Model',
+            hasApiKey: Boolean(primaryAgent.hasApiKey || business.hasApiKey),
+            agentCount: agentSetups.length,
+            dataSources,
+            messagesUsed: totalMessagesUsed,
+            usageLimit
+        };
+
+        const visitorStats = {
+            totalVisitors: primaryAgent.totalVisitors ?? primaryAgent.totalSessions ?? 0,
+            avgDuration: primaryAgent.avgDuration || 'N/A'
+        };
+
+        const riskFlags = [];
+        const loginLogs = Array.isArray(business.loginHistory) ? business.loginHistory : [];
+        const uniqueIps = new Set(loginLogs.map((l) => l.ip).filter(Boolean));
+        if (uniqueIps.size >= 4) {
+            riskFlags.push(`Multiple IP addresses detected (${uniqueIps.size} distinct IPs) on login logs.`);
+        }
+        if (business.planStatus === 'suspended') {
+            riskFlags.push('Account is currently suspended.');
+        }
+        if (usageLimit > 0 && totalMessagesUsed >= usageLimit) {
+            riskFlags.push('Message quota reached 100% limit.');
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                business,
+                visitorStats,
+                loginHistory: loginLogs,
+                aiSetup,
+                paymentHistory,
+                totalPaidAmount,
+                riskFlags,
+                auditLogs: business.auditLogs || []
+            }
+        });
+    } catch (err) {
+        console.error('GetBusinessDetailedReport Error:', err);
+        return res
+            .status(500)
+            .json({ success: false, message: 'Server error loading detailed business report.' });
+    }
+};
+
 module.exports = {
     AdminLogin,
     GetAdminStats,
@@ -297,5 +417,6 @@ module.exports = {
     GetBusinessDetails360,
     PostAnnouncement,
     GetActiveAnnouncement,
-    GetAnnouncementHistory
+    GetAnnouncementHistory,
+    GetBusinessDetailedReport,
 };

@@ -31,6 +31,34 @@ const LoginUser = async (req, res) => {
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
+        const clientIp =
+            req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+            req.socket?.remoteAddress ||
+            'Unknown IP';
+        const userAgent = req.headers['user-agent'] || 'Unknown Browser';
+
+        const updatedLoginEntry = {
+            ip: clientIp,
+            browser: userAgent,
+            timestamp: new Date()
+        };
+
+        await User.findByIdAndUpdate(
+            user._id,
+            {
+                $inc: { loginCount: 1 },
+                $set: { lastLoginAt: new Date() },
+                $push: {
+                    loginHistory: {
+                        $each: [updatedLoginEntry],
+                        $position: 0,
+                        $slice: 50
+                    }
+                }
+            },
+            { runValidators: false }
+        );
+
         // JWT Token Generate karein
         const token = jwt.sign(
             { id: user._id, email: user.email },
