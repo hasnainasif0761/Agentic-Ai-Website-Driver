@@ -11,7 +11,7 @@
         return;
     }
 
-    const BACKEND_URL = "http://localhost:5000";
+    const BACKEND_URL = "http://https://agentic-ai-website-driver.vercel.app/";
 
     let agentData = null;
     let activeTab = 'chat';
