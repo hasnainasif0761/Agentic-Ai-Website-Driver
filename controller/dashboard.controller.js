@@ -72,194 +72,259 @@ const fetchTables = async (req, res) => {
 const saveDatabaseSetup = async (req, res) => {
     let connection;
     try {
-        if (!req.user || !req.user.id) {
+        const userId = req.user?.id || req.user?._id;
+        if (!userId) {
             return res.status(401).json({ message: "Unauthorized access. Please login first." });
         }
 
-        const userId = req.user.id;
-        const { host, port, user, password, database, dataSourceType, googleSheetUrl } = req.body;
-        
-        // 🟢 0. Normalize selectedTables/selectedColumns array from FormData
-        let chosenColumns = [];
-        if (req.body.selectedTables) {
-            if (Array.isArray(req.body.selectedTables)) {
-                chosenColumns = req.body.selectedTables;
-            } else if (typeof req.body.selectedTables === 'string') {
+        const {
+            host,
+            port,
+            user,
+            password,
+            database,
+            dataSourceType,
+            googleSheetUrl,
+            dbName
+        } = req.body;
+
+        // Normalize selectedTables / selectedColumns / selectedTabs
+        let parsedSelection = [];
+        const rawSelection = req.body.selectedTables || req.body.selectedTabs || req.body.selectedColumns;
+
+        if (rawSelection) {
+            if (Array.isArray(rawSelection)) {
+                parsedSelection = rawSelection;
+            } else if (typeof rawSelection === 'string') {
                 try {
-                    chosenColumns = JSON.parse(req.body.selectedTables);
+                    parsedSelection = JSON.parse(rawSelection);
                 } catch (e) {
-                    chosenColumns = [req.body.selectedTables];
+                    parsedSelection = [rawSelection];
                 }
             }
         }
 
-        // 🟢 1. Agar User ne EXCEL FILE Upload ki hai (req.file exist karta hai)
+        // Agar frontend ne pre-parsed tab objects bheje hain (e.g. [{ tableName, tableRole, columns, rowsData }])
+        const hasDetailedTabObjects =
+            Array.isArray(parsedSelection) &&
+            parsedSelection.length > 0 &&
+            typeof parsedSelection[0] === 'object' &&
+            parsedSelection[0] !== null &&
+            (parsedSelection[0].tableName || parsedSelection[0].sheetName);
+
+        // 1. Agar EXCEL FILE upload hui hai
         if (req.file) {
-            // Buffer se Excel file parse karein
-            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-            const tablesData = [];
+            if (hasDetailedTabObjects) {
+                const tablesData = parsedSelection.map((t) => ({
+                    tableName: String(t.tableName || t.sheetName || 'Sheet').trim(),
+                    tableRole: String(t.tableRole || '').trim(),
+                    columns: Array.isArray(t.columns) ? t.columns : [],
+                    rowsData: Array.isArray(t.rowsData) ? t.rowsData : []
+                }));
 
-            workbook.SheetNames.forEach(sheetName => {
-                const sheet = workbook.Sheets[sheetName];
-                const fullRowsJson = xlsx.utils.sheet_to_json(sheet);
-
-                if (fullRowsJson.length > 0) {
-                    const allColumnsInSheet = Object.keys(fullRowsJson[0]);
-
-                    // Check karein ke user ne specific columns select kiye hain ya sab
-                    const finalColumnsToKeep = chosenColumns.length > 0 
-                        ? chosenColumns.filter(col => allColumnsInSheet.includes(col))
-                        : allColumnsInSheet;
-
-                    // 🎯 FILTERING: Sirf selected columns ka data nikaalein
-                    const filteredRowsData = fullRowsJson.map(row => {
-                        let filteredRow = {};
-                        finalColumnsToKeep.forEach(col => {
-                            if (row[col] !== undefined) {
-                                filteredRow[col] = row[col];
-                            }
-                        });
-                        return filteredRow;
-                    });
-
-                    tablesData.push({
-                        tableName: sheetName,
-                        columns: finalColumnsToKeep,
-                        rowsData: filteredRowsData
-                    });
+                if (tablesData.length === 0) {
+                    return res.status(400).json({ message: "No valid tabs selected from Excel file." });
                 }
-            });
+
+                const newSetup = await DatabaseSetup.create({
+                    userId,
+                    dbName: (dbName && dbName.trim()) || req.file.originalname,
+                    host: "Uploaded Excel File",
+                    user: req.user.name || "User",
+                    sourceType: "excel",
+                    lastSyncedAt: new Date(),
+                    tables: tablesData,
+                    totalTablesCount: tablesData.length
+                });
+
+                return res.status(200).json({
+                    success: true,
+                    message: `${tablesData.length} Excel tab(s) saved to User Profile!`,
+                    setupId: newSetup._id,
+                    savedData: newSetup
+                });
+            }
+
+            const { workbook } = await loadSpreadsheetWorkbook({ file: req.file });
+            const allSheets = extractAllSheetsFromWorkbook(workbook);
+
+            const selectedTabNames = parsedSelection
+                .filter((item) => typeof item === 'string')
+                .map((s) => s.trim().toLowerCase());
+
+            const targetSheets =
+                selectedTabNames.length > 0
+                    ? allSheets.filter((s) => selectedTabNames.includes(s.sheetName.toLowerCase()))
+                    : allSheets;
+
+            const tablesData = targetSheets.map((sheet) => ({
+                tableName: sheet.sheetName,
+                tableRole: "",
+                columns: sheet.columns,
+                rowsData: sheet.rowsData
+            }));
 
             if (tablesData.length === 0) {
-                return res.status(400).json({ message: "Uploaded Excel sheet is empty or invalid." });
+                return res.status(400).json({ message: "Uploaded Excel sheet is empty or no matching tabs found." });
             }
 
             const newSetup = await DatabaseSetup.create({
                 userId,
-                dbName: req.file.originalname,
+                dbName: (dbName && dbName.trim()) || req.file.originalname,
                 host: "Uploaded Excel File",
                 user: req.user.name || "User",
+                sourceType: "excel",
+                lastSyncedAt: new Date(),
                 tables: tablesData,
                 totalTablesCount: tablesData.length
             });
 
             return res.status(200).json({
-                message: "Excel Selected Columns Successfully Parsed & Saved to User Profile!",
+                success: true,
+                message: `Excel (${tablesData.length} tab(s)) successfully parsed & saved to User Profile!`,
                 setupId: newSetup._id,
                 savedData: newSetup
             });
         }
 
-        // 🟢 2. Agar Google Sheet URL hai
-        if (dataSourceType === 'googlesheet' || googleSheetUrl) {
+        // 2. Agar GOOGLE SHEET URL hai (Multi-Tab Support)
+        if (dataSourceType === 'googlesheet' || dataSourceType === 'google_sheet' || googleSheetUrl) {
             try {
-                const match = googleSheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-                if (!match || !match[1]) {
-                    return res.status(400).json({ message: "Invalid Google Sheet URL format." });
+                if (hasDetailedTabObjects) {
+                    const tablesData = parsedSelection.map((t) => ({
+                        tableName: String(t.tableName || t.sheetName || 'Sheet').trim(),
+                        tableRole: String(t.tableRole || '').trim(),
+                        columns: Array.isArray(t.columns) ? t.columns : [],
+                        rowsData: Array.isArray(t.rowsData) ? t.rowsData : []
+                    }));
+
+                    if (tablesData.length === 0) {
+                        return res.status(400).json({ message: "Please select at least one Google Sheet tab." });
+                    }
+
+                    const match = String(googleSheetUrl || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                    const sheetId = match ? match[1] : null;
+
+                    const newSetup = await DatabaseSetup.create({
+                        userId,
+                        dbName: (dbName && dbName.trim()) || (sheetId ? `GoogleSheet_${sheetId.substring(0, 8)}` : "Google Sheet"),
+                        host: "Live Google Sheet",
+                        user: req.user.name || "User",
+                        sourceType: "google_sheet",
+                        sourceUrl: String(googleSheetUrl || '').trim(),
+                        sheetId,
+                        lastSyncedAt: new Date(),
+                        tables: tablesData,
+                        totalTablesCount: tablesData.length
+                    });
+
+                    return res.status(200).json({
+                        success: true,
+                        message: `${tablesData.length} Google Sheet tab(s) saved to profile!`,
+                        setupId: newSetup._id,
+                        savedData: newSetup
+                    });
                 }
 
-                const sheetId = match[1];
-                const csvExportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+                const { sourceName, sheetId, workbook } = await loadSpreadsheetWorkbook({ googleSheetUrl });
+                const allSheets = extractAllSheetsFromWorkbook(workbook);
 
-                const response = await axios.get(csvExportUrl, { 
-                    responseType: 'arraybuffer',
-                    headers: { 'User-Agent': 'Mozilla/5.0' }
-                });
-                
-                const workbook = xlsx.read(response.data, { type: 'buffer' });
-                const sheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[sheetName];
-                const fullRowsJson = xlsx.utils.sheet_to_json(sheet);
-
-                if (!fullRowsJson || fullRowsJson.length === 0) {
+                if (!allSheets.length) {
                     return res.status(400).json({ message: "Google Sheet is empty or unreadable." });
                 }
 
-                const allSheetColumns = Object.keys(fullRowsJson[0]);
+                const selectedTabNames = parsedSelection
+                    .filter((item) => typeof item === 'string')
+                    .map((s) => s.trim().toLowerCase());
 
-                // User ke checked columns match karein
-                const finalColumnsToKeep = chosenColumns.length > 0 
-                    ? chosenColumns.filter(col => allSheetColumns.includes(col))
-                    : allSheetColumns;
+                const targetSheets =
+                    selectedTabNames.length > 0
+                        ? allSheets.filter((s) => selectedTabNames.includes(s.sheetName.toLowerCase()))
+                        : allSheets;
 
-                // 🎯 FILTERING: Only extract checked columns data
-                const filteredRowsData = fullRowsJson.map(row => {
-                    let filteredRow = {};
-                    finalColumnsToKeep.forEach(col => {
-                        if (row[col] !== undefined) {
-                            filteredRow[col] = row[col];
-                        }
-                    });
-                    return filteredRow;
-                });
+                const tablesData = targetSheets.map((sheet) => ({
+                    tableName: sheet.sheetName,
+                    tableRole: "",
+                    columns: sheet.columns,
+                    rowsData: sheet.rowsData
+                }));
 
-                const tablesData = [{
-                    tableName: "Sheet1_Data",
-                    columns: finalColumnsToKeep,
-                    rowsData: filteredRowsData
-                }];
+                if (tablesData.length === 0) {
+                    return res.status(400).json({ message: "No matching sheet tabs found in Google Sheet." });
+                }
 
                 const newSetup = await DatabaseSetup.create({
                     userId,
-                    dbName: `GoogleSheet_${sheetId.substring(0, 8)}`,
+                    dbName: (dbName && dbName.trim()) || sourceName,
                     host: "Live Google Sheet",
                     user: req.user.name || "User",
+                    sourceType: "google_sheet",
+                    sourceUrl: String(googleSheetUrl || '').trim(),
+                    sheetId,
+                    lastSyncedAt: new Date(),
                     tables: tablesData,
-                    totalTablesCount: 1
+                    totalTablesCount: tablesData.length
                 });
 
                 return res.status(200).json({
-                    message: "Google Sheet Selected Columns Successfully Saved to Profile!",
+                    success: true,
+                    message: `Google Sheet (${tablesData.length} tab(s)) successfully saved to profile!`,
                     setupId: newSetup._id,
                     savedData: newSetup
                 });
-
             } catch (err) {
-                console.error("Google Sheet Sync Error:", err.message);
-                return res.status(500).json({ 
-                    message: "Failed to download Google Sheet. Make sure Sheet Access is set to 'Anyone with the link can view'." 
+                console.error("Google Sheet Sync Error:", err.response?.data || err.message);
+                return res.status(400).json({
+                    message: "Failed to download Google Sheet. Make sure Sheet Access is set to 'Anyone with the link can view'."
                 });
             }
         }
 
-        // 🟢 3. Agar SQL Database connect kiya gaya hai
-        if (!chosenColumns || chosenColumns.length === 0) {
+        // 3. Agar SQL DATABASE connect kiya gaya hai
+        const sqlTables = parsedSelection.filter((item) => typeof item === 'string');
+        if (!sqlTables || sqlTables.length === 0) {
             return res.status(400).json({ message: "Select at least one table." });
         }
 
         connection = await mysql.createConnection({
-            host, port: Number(port) || 3306, user, password: password || '', database
+            host,
+            port: Number(port) || 3306,
+            user,
+            password: password || '',
+            database
         });
 
         const tablesData = [];
-
-        for (const table of chosenColumns) {
+        for (const table of sqlTables) {
             const [rows] = await connection.query(`SELECT * FROM \`${table}\` LIMIT 500;`);
             const [columnsRaw] = await connection.query(`DESCRIBE \`${table}\`;`);
-            const columns = columnsRaw.map(col => col.Field);
+            const columns = columnsRaw.map((col) => col.Field);
 
             tablesData.push({
                 tableName: table,
-                columns: columns,
+                tableRole: "",
+                columns,
                 rowsData: rows
             });
         }
 
         const newSetup = await DatabaseSetup.create({
             userId,
-            dbName: database,
+            dbName: (dbName && dbName.trim()) || database,
             host,
             user,
+            sourceType: "mysql",
+            lastSyncedAt: new Date(),
             tables: tablesData,
             totalTablesCount: tablesData.length
         });
 
         return res.status(200).json({
+            success: true,
             message: "SQL Database Setup Saved Successfully!",
             setupId: newSetup._id,
             savedData: newSetup
         });
-
     } catch (error) {
         console.error("Sync Error:", error);
         return res.status(500).json({ message: `Sync Failed: ${error.message}` });
@@ -541,4 +606,131 @@ const visitor_chat = async(req,res)=>{
             }
 }
 
-module.exports = { connectDatabase,visitor_chat,approvedPlanFunc,planUpgradeFunc,getLeadHistoryByVisitor,chat_analytics, handleAgentChat, saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables, handleFetchdata };
+function extractAllSheetsFromWorkbook(workbook) {
+    const sheets = [];
+
+    for (const sheetName of workbook.SheetNames || []) {
+        const worksheet = workbook.Sheets[sheetName];
+        if (!worksheet) continue;
+
+        const jsonRows = xlsx.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+        const nonEmptyRows = jsonRows.filter((row) =>
+            Object.values(row).some((val) => String(val ?? '').trim() !== '')
+        );
+
+        const headerMatrix = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+        const firstRowCols = Array.isArray(headerMatrix[0])
+            ? headerMatrix[0].map((c) => String(c ?? '').trim()).filter(Boolean)
+            : [];
+
+        const inferredCols =
+            nonEmptyRows.length > 0
+                ? Object.keys(nonEmptyRows[0]).map((k) => String(k).trim()).filter(Boolean)
+                : [];
+
+        const columns = Array.from(new Set([...firstRowCols, ...inferredCols]));
+
+        const cleanedRows = nonEmptyRows.map((row) => {
+            const item = {};
+            for (const col of columns) {
+                item[col] = row[col] !== undefined ? row[col] : '';
+            }
+            return item;
+        });
+
+        sheets.push({
+            sheetName: String(sheetName).trim(),
+            columns,
+            rowsData: cleanedRows,
+            rowCount: cleanedRows.length
+        });
+    }
+
+    return sheets;
+}
+
+const inspectSpreadsheetTabs = async (req, res) => {
+    try {
+        const googleSheetUrl = req.body?.googleSheetUrl;
+        const file = req.file;
+
+        const { sourceName, sheetId, workbook } = await loadSpreadsheetWorkbook({
+            file,
+            googleSheetUrl
+        });
+
+        const sheets = extractAllSheetsFromWorkbook(workbook);
+
+        if (!sheets.length) {
+            return res.status(400).json({
+                success: false,
+                message: "No worksheet tabs found in this spreadsheet."
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            sourceName,
+            sheetId,
+            sheets
+        });
+    } catch (err) {
+        console.error("Inspect Spreadsheet Tabs Error:", err.response?.data || err.message);
+        if (err.response?.status === 401 || err.response?.status === 403 || err.response?.status === 404) {
+            return res.status(400).json({
+                success: false,
+                message: "Google Sheet access denied or not found. Make sure Sheet sharing is set to 'Anyone with the link can view'."
+            });
+        }
+        return res.status(400).json({
+            success: false,
+            message: err.message || "Failed to inspect spreadsheet tabs."
+        });
+    }
+};
+
+async function loadSpreadsheetWorkbook({ file, googleSheetUrl }) {
+    if (file) {
+        if (file.buffer) {
+            return {
+                sourceName: file.originalname || 'Uploaded_Excel',
+                sheetId: null,
+                workbook: xlsx.read(file.buffer, { type: 'buffer' })
+            };
+        }
+        if (file.path) {
+            return {
+                sourceName: file.originalname || 'Uploaded_Excel',
+                sheetId: null,
+                workbook: xlsx.readFile(file.path)
+            };
+        }
+        throw new Error("Uploaded Excel file content could not be read.");
+    }
+
+    if (googleSheetUrl) {
+        const match = String(googleSheetUrl).trim().match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (!match || !match[1]) {
+            throw new Error("Invalid Google Sheet URL format.");
+        }
+
+        const sheetId = match[1];
+        // XLSX export use karne se saari sheet tabs aati hain (CSV sirf pehli tab deta hai)
+        const xlsxExportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+        const response = await axios.get(xlsxExportUrl, {
+            responseType: 'arraybuffer',
+            timeout: 15000,
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+
+        return {
+            sourceName: `GoogleSheet_${sheetId.substring(0, 8)}`,
+            sheetId,
+            workbook: xlsx.read(Buffer.from(response.data), { type: 'buffer' })
+        };
+    }
+
+    throw new Error("Please provide a Google Sheet URL or upload an Excel file.");
+}
+
+module.exports = { connectDatabase,visitor_chat,approvedPlanFunc,planUpgradeFunc,getLeadHistoryByVisitor,chat_analytics, handleAgentChat, saveDatabaseSetup, getDashboardStats, getRecentSetups, fetchDatabases, fetchTables, handleFetchdata, inspectSpreadsheetTabs };

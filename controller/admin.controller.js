@@ -20,6 +20,19 @@ const PLAN_AMOUNTS = {
     golden: 149
 };
 
+const TIER_PRICING = {
+    free: 0,
+    basic: 29,
+    silver: 79,
+    golden: 149
+};
+
+const GOVERNANCE_PLAN_QUOTAS = {
+    free: { quota: 15, isUnlimited: false, price: 0 },
+    basic: { quota: 500, isUnlimited: false, price: 29 },
+    silver: { quota: 3000, isUnlimited: false, price: 79 },
+    golden: { quota: null, isUnlimited: true, price: 149 }
+};
 const AdminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -408,6 +421,318 @@ const GetBusinessDetailedReport = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/admin/businesses/pending-expired-alerts
+ * Query params:
+ *   - status: 'all' | 'pending_approval' | 'expired'
+ *   - search: string (businessName, name, email, phone, city)
+ *   - limit: number (default 7 for bell dropdown, higher for full page)
+ */
+const GetPendingExpiredAlerts = async (req, res) => {
+    try {
+        const { status = 'all', search = '', limit = 7 } = req.query;
+        const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 7, 1), 100);
+
+        const baseFilter = {
+            planStatus: { $in: ['pending_approval', 'expired'] }
+        };
+
+        if (status === 'pending_approval' || status === 'expired') {
+            baseFilter.planStatus = status;
+        }
+
+        if (search && search.trim() !== '') {
+            const regex = new RegExp(search.trim(), 'i');
+            baseFilter.$or = [
+                { businessName: regex },
+                { name: regex },
+                { email: regex },
+                { phone: regex },
+                { city: regex }
+            ];
+        }
+
+        const businesses = await User.find(baseFilter)
+            .select('-password')
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .limit(parsedLimit);
+
+        // Overall metrics across all pending_approval & expired accounts
+        const allAlerts = await User.find({
+            planStatus: { $in: ['pending_approval', 'expired'] }
+        }).select('planType planStatus updatedAt createdAt');
+
+        let pendingCount = 0;
+        let expiredCount = 0;
+        let pendingRevenue = 0;
+        let expiredRevenueAtRisk = 0;
+        let slaBreachedCount = 0;
+
+        const now = Date.now();
+        const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+
+        const enriched = businesses.map((b) => {
+            const doc = b.toObject();
+            const tierPrice = TIER_PRICING[(doc.planType || 'free').toLowerCase()] ?? 0;
+            const refTime = new Date(doc.updatedAt || doc.createdAt || now).getTime();
+            const hoursElapsed = Math.max(0, Math.floor((now - refTime) / (1000 * 60 * 60)));
+            const daysElapsed = Math.floor(hoursElapsed / 24);
+
+            const isSlaBreached =
+                doc.planStatus === 'pending_approval' && (now - refTime) > twentyFourHoursMs;
+
+            return {
+                ...doc,
+                tierPrice,
+                hoursElapsed,
+                daysElapsed,
+                isSlaBreached
+            };
+        });
+
+        allAlerts.forEach((item) => {
+            const price = TIER_PRICING[(item.planType || 'free').toLowerCase()] ?? 0;
+            const refTime = new Date(item.updatedAt || item.createdAt || now).getTime();
+
+            if (item.planStatus === 'pending_approval') {
+                pendingCount += 1;
+                pendingRevenue += price;
+                if (now - refTime > twentyFourHoursMs) {
+                    slaBreachedCount += 1;
+                }
+            } else if (item.planStatus === 'expired') {
+                expiredCount += 1;
+                expiredRevenueAtRisk += price;
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            businesses: enriched,
+            metrics: {
+                totalAlerts: allAlerts.length,
+                pendingCount,
+                expiredCount,
+                pendingRevenue,
+                expiredRevenueAtRisk,
+                slaBreachedCount
+            }
+        });
+    } catch (error) {
+        console.error('GetPendingExpiredAlerts Error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to load pending and expired business alerts.'
+        });
+    }
+};
+
+/**
+ * POST /api/admin/business/:userId/subscription-action
+ * Body:
+ *   - actionType: 'approve' | 'reject' | 'grace_7d' | 'grace_14d' | 'mark_expired'
+ *   - reason?: string
+ */
+const HandleSubscriptionGovernanceAction = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { actionType, reason = '' } = req.body;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Business account not found.' });
+        }
+
+        let agent = await AgentSetup.findOne({ userId: user._id });
+        if (!agent) {
+            agent = await AgentSetup.create({
+                userId: user._id,
+                businessName: user.businessName || '',
+                planType: 'free',
+                planStatus: 'active',
+                usageLimit: 15,
+                messagesUsed: 0,
+                carryOverChats: 0
+            });
+        }
+
+        const now = Date.now();
+        const targetPlan = (agent.planType || user.pendingPaymentDetails?.planType || 'basic').toLowerCase();
+        const planCfg = GOVERNANCE_PLAN_QUOTAS[targetPlan] || GOVERNANCE_PLAN_QUOTAS.basic;
+        const isTargetUnlimited = Boolean(planCfg.isUnlimited) || targetPlan === 'golden';
+
+        const prevUnlimited = agent.planType === 'golden' || agent.usageLimit === null;
+        const expiresAtMs = agent.planExpiresAt
+            ? new Date(agent.planExpiresAt).getTime()
+            : new Date(agent.createdAt || now).getTime() + 30 * 24 * 60 * 60 * 1000;
+        const graceMs = agent.gracePeriodUntil ? new Date(agent.gracePeriodUntil).getTime() : 0;
+        const effectiveExpiryMs = Math.max(expiresAtMs, graceMs);
+
+        const isDateExpired = now >= effectiveExpiryMs;
+        const daysRemaining = Math.max(0, Math.ceil((effectiveExpiryMs - now) / (1000 * 60 * 60 * 24)));
+
+        const prevEffectiveLimit = prevUnlimited
+            ? null
+            : (agent.usageLimit || 0) + (agent.carryOverChats || 0);
+        const prevRemainingChats = prevUnlimited
+            ? null
+            : Math.max(0, prevEffectiveLimit - (agent.messagesUsed || 0));
+
+        let userUpdateFields = {};
+        let responseMessage = 'Subscription updated.';
+
+        if (actionType === 'approve') {
+            const carryOverToAdd =
+                !isTargetUnlimited && !prevUnlimited && !isDateExpired && (prevRemainingChats || 0) > 0
+                    ? prevRemainingChats
+                    : 0;
+
+            let totalDays = 30;
+            if (!isDateExpired && daysRemaining > 0 && daysRemaining <= 5) {
+                totalDays = 30 + daysRemaining;
+            }
+
+            const newExpiresAt = new Date(now + totalDays * 24 * 60 * 60 * 1000);
+            const newLimit = isTargetUnlimited ? null : planCfg.quota;
+            const totalQuotaAfterCarryOver = isTargetUnlimited ? null : (newLimit || 0) + carryOverToAdd;
+
+            agent.planType = targetPlan;
+            agent.planStatus = 'active';
+            agent.planStartedAt = new Date(now);
+            agent.planExpiresAt = newExpiresAt;
+            agent.gracePeriodUntil = null;
+            agent.usageLimit = newLimit;
+            agent.carryOverChats = carryOverToAdd;
+            agent.messagesUsed = 0;
+            await agent.save();
+
+            const quotaLabel = isTargetUnlimited
+                ? 'Unlimited chats'
+                : `${totalQuotaAfterCarryOver} total chats (${newLimit} plan + ${carryOverToAdd} carry-over)`;
+
+            userUpdateFields = {
+                planStatus: 'active',
+                reminder5DaysSent: false,
+                expiredNoticeSent: false,
+                lastNotification: {
+                    type: 'resubscribed',
+                    message: `${targetPlan.toUpperCase()} approved & activated (${quotaLabel}, valid for ${totalDays} days).`,
+                    sentAt: new Date()
+                }
+            };
+
+            await User.findByIdAndUpdate(
+                userId,
+                {
+                    $set: userUpdateFields,
+                    $push: {
+                        paymentHistory: {
+                            planType: targetPlan,
+                            slip: user.paymentSlip || user.pendingPaymentDetails?.paymentSlipUrl || '',
+                            amount: planCfg.price,
+                            updatedBy: 'Superadmin (Approved)',
+                            date: new Date()
+                        },
+                        subscriptionLogs: {
+                            action: 'approve',
+                            fromPlan: agent.planType,
+                            toPlan: targetPlan,
+                            carryOverAdded: carryOverToAdd,
+                            daysAdded: totalDays,
+                            note: `Approved by Superadmin. ${quotaLabel}, validity: ${totalDays} days.`,
+                            createdAt: new Date()
+                        }
+                    }
+                },
+                { runValidators: false }
+            );
+
+            responseMessage = `${user.businessName} (${targetPlan.toUpperCase()}) approved & activated — ${quotaLabel} for ${totalDays} days.`;
+        } else if (actionType === 'reject') {
+            agent.planStatus = 'expired';
+            agent.carryOverChats = 0;
+            await agent.save();
+
+            userUpdateFields = {
+                planStatus: 'expired',
+                rejectionReason: reason || 'Payment verification declined by Superadmin.',
+                lastNotification: {
+                    type: '30_day_expired',
+                    message: reason || 'Payment verification declined by Superadmin.',
+                    sentAt: new Date()
+                }
+            };
+
+            await User.findByIdAndUpdate(
+                userId,
+                { $set: userUpdateFields },
+                { new: true, runValidators: false }
+            );
+
+            responseMessage = `${user.businessName} request marked as rejected/expired.`;
+        } else if (actionType === 'grace_7d' || actionType === 'grace_14d') {
+            const days = actionType === 'grace_14d' ? 14 : 7;
+            const graceUntil = new Date(now + days * 24 * 60 * 60 * 1000);
+
+            agent.planStatus = 'active';
+            agent.gracePeriodUntil = graceUntil;
+            await agent.save();
+
+            userUpdateFields = {
+                planStatus: 'active',
+                gracePeriodUntil: graceUntil,
+                expiredNoticeSent: false
+            };
+
+            await User.findByIdAndUpdate(
+                userId,
+                { $set: userUpdateFields },
+                { new: true, runValidators: false }
+            );
+
+            responseMessage = `${days}-day courtesy grace period granted to ${user.businessName}.`;
+        } else if (actionType === 'mark_expired') {
+            agent.planStatus = 'expired';
+            agent.carryOverChats = 0;
+            if (!prevUnlimited) {
+                agent.messagesUsed = agent.usageLimit || 0;
+            }
+            await agent.save();
+
+            userUpdateFields = {
+                planStatus: 'expired',
+                expiredNoticeSent: true
+            };
+
+            await User.findByIdAndUpdate(
+                userId,
+                { $set: userUpdateFields },
+                { new: true, runValidators: false }
+            );
+
+            responseMessage = `${user.businessName} marked as expired.`;
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid governance action.' });
+        }
+
+        const updatedUser = await User.findById(userId).select('-password');
+        const updatedAgent = await AgentSetup.findById(agent._id);
+
+        return res.status(200).json({
+            success: true,
+            message: responseMessage,
+            business: updatedUser,
+            agent: updatedAgent
+        });
+    } catch (error) {
+        console.error('HandleSubscriptionGovernanceAction Error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error executing subscription governance action.'
+        });
+    }
+};
+
 module.exports = {
     AdminLogin,
     GetAdminStats,
@@ -419,4 +744,6 @@ module.exports = {
     GetActiveAnnouncement,
     GetAnnouncementHistory,
     GetBusinessDetailedReport,
+    GetPendingExpiredAlerts,
+    HandleSubscriptionGovernanceAction
 };

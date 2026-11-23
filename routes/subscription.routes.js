@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { SubmitPlanUpgrade } = require('../controller/subscription.controller');
+const { SubmitPlanUpgrade, GetSubscriptionStatus,
+    ResubscribeOrUpgradePlan,
+    RunSubscriptionLifecycleCheck } = require('../controller/subscription.controller');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const multer = require('multer');
 
@@ -17,5 +19,8 @@ const upload = multer({ storage: storage });
 
 // POST /api/subscription/upgrade
 router.put('/upgrade-plan',authMiddleware , upload.single('paymentSlip'), SubmitPlanUpgrade);
+router.get('/status',authMiddleware, GetSubscriptionStatus);
+router.post('/resubscribe-or-upgrade',authMiddleware ,upload.single('paymentSlip'), ResubscribeOrUpgradePlan);
+router.post('/lifecycle-check',authMiddleware , RunSubscriptionLifecycleCheck);
 
 module.exports = router;

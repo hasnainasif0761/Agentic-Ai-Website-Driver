@@ -8,6 +8,7 @@ const ChatLog = require('../models/ChatLog');
 const VisitorLead = require('../models/VisitorLead');
 const { chatRateLimiter } = require('../middleware/securityMiddleware');
 const User = require('../models/User');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
 // 1. Lead Register Endpoint (Form tab Submit handler)
 router.post('/register-lead', async (req, res) => {
@@ -117,39 +118,30 @@ router.post('/chat', chatRateLimiter, async (req, res) => {
             return res.status(404).json({ success: false, message: "Agent not found" });
         }
 
-        const now = new Date();
-
-        if (agent.planStatus === 'expired' || agent.planStatus === 'pending_approval') {
+        if (agent.planStatus === 'pending_approval') {
             return res.status(403).json({
                 success: false,
-                reply: `⚠️ Aapka plan expire ho chuka hai ya approval pending hai. AI chat service continue rakhne ke liye please dashboard se plan purchase karein.`
+                paused: true,
+                reason: 'pending_approval',
+                reply: `⚠️ Aapka plan abhi approval ke intezar mein hai. AI chat service active hone ke baad shuru hogi.`
             });
         }
-        const user = await User.findById(agent.userId);
 
-        if (['free', 'basic', 'silver'].includes(agent.planType)) {
-            if (agent.messagesUsed >= agent.usageLimit) {
-                agent.planStatus = 'expired';
-                await agent.save();
-                if (user) {
-                    await User.findByIdAndUpdate(agent.userId, { $set: { planStatus: 'expired' } }, { runValidators: false });
-                }
-                return res.status(403).json({
-                    success: false,
-                    reply: `⚠️ Aapka ${agent.planType.toUpperCase()} Plan ka message quota khatam ho gaya hai.`
-                });
-            }
+        const user = await User.findById(agent.userId).select('_id planStatus');
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Associated business owner not found" });
         }
 
-        if (agent.planType === 'golden' && agent.planEndDate) {
-            if (now > new Date(agent.planEndDate)) {
-                agent.planStatus = 'expired';
-                await agent.save();
-                return res.status(403).json({
-                    success: false,
-                    reply: `⚠️ Aapka Golden Subscription period khatam ho gaya hai.`
-                });
-            }
+        // Step 2 Quota & 30-Day Validity Check + Atomic Quota Consumption
+        const quotaCheck = await consumeCustomerChatQuota(user._id, 1);
+        if (!quotaCheck.allowed) {
+            return res.status(402).json({
+                success: false,
+                paused: true,
+                reason: quotaCheck.reason,
+                reply: `⚠️ ${quotaCheck.message}`,
+                message: quotaCheck.message
+            });
         }
 
         // Step 1: Dynamic Location Tracking
@@ -178,12 +170,10 @@ router.post('/chat', chatRateLimiter, async (req, res) => {
         let lead = null;
         let isUnrecognizedEmail = false;
 
-        // 1. Agar localStorage se direct valid leadId aayi hai
         if (leadId && mongoose.Types.ObjectId.isValid(leadId)) {
             lead = await VisitorLead.findById(leadId);
         }
 
-        // 2. Session lead check karein
         const sessionLead = await VisitorLead.findOne({
             agentId,
             $or: [{ visitorId: currentVisitor }, { visitorIds: currentVisitor }]
@@ -193,14 +183,13 @@ router.post('/chat', chatRateLimiter, async (req, res) => {
             clientEmail = sessionLead.email;
         }
 
-        // 3. Check DB for existing email
         if (!lead && clientEmail) {
             const existingLead = await VisitorLead.findOne({ agentId, email: clientEmail });
             if (existingLead) {
-                lead = existingLead; // Purana verified customer
+                lead = existingLead;
             } else if (emailMatch) {
                 if (!sessionLead || !sessionLead.email) {
-                    isUnrecognizedEmail = true; // Nayi unknown email
+                    isUnrecognizedEmail = true;
                 }
             }
         }
@@ -212,7 +201,6 @@ router.post('/chat', chatRateLimiter, async (req, res) => {
                 }
                 await VisitorLead.findByIdAndDelete(sessionLead._id);
 
-                // ChatLog aapas mein sync/merge karein
                 const guestChatLog = await ChatLog.findOne({ agentId, visitorId: currentVisitor });
                 const masterChatLog = await ChatLog.findOne({ agentId, visitorId: lead.visitorId });
 
@@ -295,7 +283,7 @@ router.post('/chat', chatRateLimiter, async (req, res) => {
         let customerMemoryContext = "";
         const hasValidName = lead && lead.name && lead.name !== "Valued Customer";
         const isVerified = Boolean(lead && (lead.email || lead.phone || hasValidName) && !isUnrecognizedEmail);
-        
+
         if (isUnrecognizedEmail) {
             customerMemoryContext = `
 UNRECOGNIZED EMAIL NOTICE:
@@ -326,27 +314,50 @@ UNREGISTERED GUEST VISITOR:
         }
 
         // Step 5: Connected Databases / Sheets Context Fetching
-        const dbSetups = await DatabaseSetup.find({ userId: agent.userId });
-        let dbContextString = "No database connected.";
-        if (dbSetups && dbSetups.length > 0) {
-            const userKeywords = message.toLowerCase().split(' ').filter(word => word.length > 2);
-            dbContextString = dbSetups.map(db => {
-                if (!db.tables || db.tables.length === 0) return '';
-                return db.tables.map(t => {
-                    const columns = t.columns || [];
-                    const rows = t.rowsData || [];
-                    let relevantRows = [];
-                    if (userKeywords.length > 0 && rows.length > 0) {
-                        relevantRows = rows.filter(row => {
-                            const rowString = JSON.stringify(row).toLowerCase();
-                            return userKeywords.some(keyword => rowString.includes(keyword));
-                        });
-                    }
-                    const displayRows = relevantRows.length > 0 ? relevantRows.slice(0, 5) : rows.slice(0, 5);
-                    return `Source DB: ${db.dbName} | Table: ${t.tableName}\nColumns: ${columns.join(', ')}\nData: ${JSON.stringify(displayRows)}`;
-                }).filter(Boolean).join('\n\n');
-            }).filter(Boolean).join('\n\n');
-        }
+        const dbSetups = await DatabaseSetup.find({ userId: agent.userId }).lean();
+let dbContextString = 'No external database or sheet connected.';
+
+if (dbSetups && dbSetups.length > 0) {
+    const userKeywords = message
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 2);
+
+    const formattedBlocks = dbSetups.map((db) => {
+        if (!db.tables || db.tables.length === 0) return '';
+        return db.tables
+            .map((t) => {
+                const columns = t.columns || [];
+                const rows = t.rowsData || [];
+                let relevantRows = [];
+
+                if (userKeywords.length > 0 && rows.length > 0) {
+                    relevantRows = rows.filter((row) => {
+                        const rowString = JSON.stringify(row).toLowerCase();
+                        return userKeywords.some((keyword) => rowString.includes(keyword));
+                    });
+                }
+
+                const displayRows = relevantRows.length > 0 ? relevantRows.slice(0, 6) : rows.slice(0, 6);
+                const roleLine = t.tableRole ? `Purpose/Role: ${t.tableRole}\n` : '';
+
+                return [
+                    `Source: ${db.dbName} | Tab/Table: ${t.tableName}`,
+                    roleLine.trim(),
+                    `Columns: ${columns.join(', ')}`,
+                    `Data: ${JSON.stringify(displayRows)}`
+                ]
+                    .filter(Boolean)
+                    .join('\n');
+            })
+            .filter(Boolean)
+            .join('\n\n');
+    }).filter(Boolean);
+
+    if (formattedBlocks.length > 0) {
+        dbContextString = formattedBlocks.join('\n\n');
+    }
+}
 
         const apiKey = agent.customApiKey;
         if (!apiKey) {
@@ -396,7 +407,7 @@ INSTRUCTIONS:
             await lead.save();
         }
 
-        // Step 8: Message Usage Count Update
+        // Step 8: Agent-level usage counter update
         agent.messagesUsed = (agent.messagesUsed || 0) + 1;
         await agent.save();
 
@@ -407,11 +418,12 @@ INSTRUCTIONS:
             phone: lead.phone
         } : null;
 
-        return res.status(200).json({ 
-            success: true, 
-            reply: aiReply, 
+        return res.status(200).json({
+            success: true,
+            reply: aiReply,
             messagesUsed: agent.messagesUsed,
-            lead: verifiedLeadPayload 
+            remainingChats: quotaCheck.remainingChats,
+            lead: verifiedLeadPayload
         });
 
     } catch (err) {
@@ -429,15 +441,302 @@ INSTRUCTIONS:
 
 router.post('/platform-sales-chat', async (req, res) => {
     try {
-        const { message } = req.body;
-        const apiKey = process.env.OPENROUTER_API_KEY;
-        const openAiResponse = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: message }]
-        }, { headers: { "Authorization": `Bearer ${apiKey}` } });
-        return res.status(200).json({ success: true, reply: openAiResponse.data.choices[0].message.content });
+        const { message, agentId, visitorId } = req.body;
+
+        if (!message || !message.trim()) {
+            return res.status(400).json({ success: false, message: "Message is required." });
+        }
+
+        // 1. Check karein ke user ne agent generate kiya hua hai ya nahi
+        if (!agentId || !mongoose.Types.ObjectId.isValid(agentId)) {
+            return res.status(400).json({
+                success: false,
+                notConfigured: true,
+                reply: "⚠️ Pehle Agent Generator tab mein ja kar apna AI Agent generate aur configure karein, phir yahan testing karein."
+            });
+        }
+
+        const agent = await AgentSetup.findById(agentId);
+
+        if (
+            !agent ||
+            !agent.businessDescription ||
+            !agent.businessDescription.trim() ||
+            !agent.provider ||
+            !agent.customApiKey ||
+            !agent.customApiKey.trim()
+        ) {
+            return res.status(400).json({
+                success: false,
+                notConfigured: true,
+                reply: "⚠️ Pehle Agent Generator tab mein ja kar apna AI Agent generate aur configure karein, phir yahan testing karein."
+            });
+        }
+
+        // 2. Owner (User) ka data fetch karein taake visitorId mein uska naam/email/phone save ho
+        const owner = await User.findById(agent.userId).select('name email phone businessName');
+        if (!owner) {
+            return res.status(404).json({ success: false, message: "Associated business owner not found." });
+        }
+
+        // 3. Plan Status, 30-Day Expiry aur Quota Check
+        const now = Date.now();
+        const isUnlimited = agent.planType === 'golden' || agent.usageLimit === null;
+
+        if (agent.planStatus === 'suspended') {
+            return res.status(403).json({
+                success: false,
+                paused: true,
+                reply: "⚠️ Aapka account suspend hai. Administration se rabta karein."
+            });
+        }
+
+        if (agent.planStatus === 'pending_approval') {
+            return res.status(403).json({
+                success: false,
+                paused: true,
+                reply: "⚠️ Aapka plan abhi approval ke intezar mein hai. Approval ke baad chat active hogi."
+            });
+        }
+
+        const expiresAtMs = agent.planExpiresAt
+            ? new Date(agent.planExpiresAt).getTime()
+            : new Date(agent.createdAt || now).getTime() + 30 * 24 * 60 * 60 * 1000;
+        const graceMs = agent.gracePeriodUntil ? new Date(agent.gracePeriodUntil).getTime() : 0;
+        const effectiveExpiryMs = Math.max(expiresAtMs, graceMs);
+
+        if (agent.planStatus === 'expired' || now >= effectiveExpiryMs) {
+            if (agent.planStatus !== 'expired') {
+                agent.planStatus = 'expired';
+                await agent.save();
+            }
+            return res.status(402).json({
+                success: false,
+                paused: true,
+                reply: "⚠️ Aapke plan ki 30 din ki muddat khatam (expire) ho chuki hai. Plans & Billing tab se renew karein."
+            });
+        }
+
+        const totalLimit = isUnlimited ? null : (agent.usageLimit || 0) + (agent.carryOverChats || 0);
+        const currentUsed = agent.messagesUsed || 0;
+
+        if (!isUnlimited && currentUsed >= totalLimit) {
+            agent.planStatus = 'expired';
+            await agent.save();
+            return res.status(402).json({
+                success: false,
+                paused: true,
+                reply: "⚠️ Aapka message quota mukammal ho gaya hai. Mazeed chats ke liye apna plan upgrade ya renew karein."
+            });
+        }
+
+        // 4. User ke apne configured routes aur connected databases fetch karein
+        const routesList = Array.isArray(agent.routes) && agent.routes.length > 0
+            ? agent.routes
+                .filter(r => r && (r.routeName || r.routePath))
+                .map(r => `- ${r.routeName || 'Page'}: ${r.routePath || '/'}`)
+                .join('\n')
+            : 'No website navigation routes configured.';
+
+const dbSetups = await DatabaseSetup.find({ userId: agent.userId }).lean();
+let dbContextString = 'No external database or sheet connected.';
+
+if (dbSetups && dbSetups.length > 0) {
+    const userKeywords = message
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 2);
+
+    const formattedBlocks = dbSetups.map((db) => {
+        if (!db.tables || db.tables.length === 0) return '';
+        return db.tables
+            .map((t) => {
+                const columns = t.columns || [];
+                const rows = t.rowsData || [];
+                let relevantRows = [];
+
+                if (userKeywords.length > 0 && rows.length > 0) {
+                    relevantRows = rows.filter((row) => {
+                        const rowString = JSON.stringify(row).toLowerCase();
+                        return userKeywords.some((keyword) => rowString.includes(keyword));
+                    });
+                }
+
+                const displayRows = relevantRows.length > 0 ? relevantRows.slice(0, 6) : rows.slice(0, 6);
+                const roleLine = t.tableRole ? `Purpose/Role: ${t.tableRole}\n` : '';
+
+                return [
+                    `Source: ${db.dbName} | Tab/Table: ${t.tableName}`,
+                    roleLine.trim(),
+                    `Columns: ${columns.join(', ')}`,
+                    `Data: ${JSON.stringify(displayRows)}`
+                ]
+                    .filter(Boolean)
+                    .join('\n');
+            })
+            .filter(Boolean)
+            .join('\n\n');
+    }).filter(Boolean);
+
+    if (formattedBlocks.length > 0) {
+        dbContextString = formattedBlocks.join('\n\n');
+    }
+}
+
+        // 5. User ka apna system prompt + database context
+        const systemPrompt = `You are an intelligent AI assistant for "${agent.businessName || owner.businessName || 'Business'}".
+Agent Name: ${agent.agentName || 'AI Assistant'}
+
+CURRENT WORKSPACE USER (OWNER):
+- Name: ${owner.name}
+- Email: ${owner.email}
+- Phone: ${owner.phone || 'Not provided'}
+
+BUSINESS DESCRIPTION & SYSTEM PROMPT:
+${agent.businessDescription}
+
+WEBSITE NAVIGATION ROUTES:
+${routesList}
+
+CONNECTED DATABASE RECORDS:
+${dbContextString}
+
+INSTRUCTIONS:
+- Answer strictly based on the business description, website routes, and database records above.
+- Be concise, accurate, and helpful in the same language (English or Roman Urdu) as the user.
+- Never use markdown bold asterisks or bullet dashes. Use clean plain text spacing.`;
+
+        const provider = agent.provider.toLowerCase();
+        const userApiKey = agent.customApiKey.trim();
+        let aiReply = '';
+
+        // 6. Sirf user ki apni API key aur provider/model se AI call karein
+        if (provider === 'groq') {
+            const groqRes = await axios.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                {
+                    model: agent.selectedModel || "llama-3.3-70b-versatile",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: message }
+                    ]
+                },
+                { headers: { "Authorization": `Bearer ${userApiKey}` } }
+            );
+            aiReply = groqRes.data.choices[0].message.content;
+        } else if (provider === 'gemini') {
+            const geminiModel = agent.selectedModel || "gemini-2.5-flash";
+            const geminiRes = await axios.post(
+                `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${userApiKey}`,
+                {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [{ text: `${systemPrompt}\n\nUser Question: ${message}` }]
+                        }
+                    ]
+                }
+            );
+            aiReply = geminiRes.data.candidates[0].content.parts[0].text;
+        } else {
+            const openAiRes = await axios.post(
+                "https://api.openai.com/v1/chat/completions",
+                {
+                    model: agent.selectedModel || "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: message }
+                    ]
+                },
+                { headers: { "Authorization": `Bearer ${userApiKey}` } }
+            );
+            aiReply = openAiRes.data.choices[0].message.content;
+        }
+
+        // 7. VisitorLead & ChatLog mein ushi user ka naam + visitorId record karein
+        const resolvedVisitorId = visitorId || `workspace_${owner._id}`;
+        const ownerDisplayName = `${owner.name} (Workspace)`;
+
+        let lead = await VisitorLead.findOne({
+            agentId: agent._id,
+            $or: [{ visitorId: resolvedVisitorId }, { email: owner.email.toLowerCase() }]
+        });
+
+        if (lead) {
+            lead.name = ownerDisplayName;
+            lead.email = owner.email.toLowerCase();
+            if (owner.phone) lead.phone = owner.phone;
+            if (!lead.visitorIds) lead.visitorIds = [lead.visitorId];
+            if (!lead.visitorIds.includes(resolvedVisitorId)) {
+                lead.visitorIds.push(resolvedVisitorId);
+            }
+            lead.chatHistory.push({ sender: 'user', message });
+            lead.chatHistory.push({ sender: 'bot', message: aiReply });
+            await lead.save();
+        } else {
+            lead = await VisitorLead.create({
+                agentId: agent._id,
+                visitorId: resolvedVisitorId,
+                visitorIds: [resolvedVisitorId],
+                name: ownerDisplayName,
+                email: owner.email.toLowerCase(),
+                phone: owner.phone || undefined,
+                chatHistory: [
+                    { sender: 'user', message },
+                    { sender: 'bot', message: aiReply }
+                ]
+            });
+        }
+
+        let chatLog = await ChatLog.findOne({ agentId: agent._id, visitorId: lead.visitorId });
+        if (chatLog) {
+            chatLog.messageCount += 1;
+            chatLog.chatDurationSeconds += 10;
+            await chatLog.save();
+        } else {
+            await ChatLog.create({
+                agentId: agent._id,
+                visitorId: lead.visitorId,
+                destination: "Dashboard Workspace",
+                chatDurationSeconds: 10,
+                messageCount: 1
+            });
+        }
+
+        // 8. messagesUsed + 1 increment karein
+        agent.messagesUsed = currentUsed + 1;
+        await agent.save();
+
+        const remainingChats = isUnlimited
+            ? null
+            : Math.max(0, totalLimit - agent.messagesUsed);
+
+        return res.status(200).json({
+            success: true,
+            reply: aiReply,
+            messagesUsed: agent.messagesUsed,
+            remainingChats,
+            visitorName: ownerDisplayName
+        });
     } catch (err) {
-        return res.status(500).json({ success: false, message: "Sales AI unavailable." });
+        console.error("Workspace Agent Chat Error:", err.response?.data || err.message);
+        const statusCode = err.response?.status;
+        if (statusCode === 401) {
+            return res.status(401).json({
+                success: false,
+                reply: "⚠️ Aapki configured API Key invalid hai. Agent Generator tab mein ja kar sahi key update karein."
+            });
+        }
+        if (statusCode === 429) {
+            return res.status(429).json({
+                success: false,
+                reply: "⚠️ Aapki API Key ka credit/rate limit khatam ho gaya hai."
+            });
+        }
+        return res.status(500).json({
+            success: false,
+            message: err.response?.data?.error?.message || "Agent AI service unavailable."
+        });
     }
 });
 
@@ -508,5 +807,15 @@ STRICT RESPONSE RULES:
         });
     }
 });
+
+router.get('/getAgent',authMiddleware,async(req,res)=>{
+    console.log(req.user?._id)
+    const userId = req.user?._id || req.user?.id || req.body?.userId;
+        const agent = await AgentSetup.findOne({userId});
+        return res.status(200).json({
+                success:true,
+                data:agent
+    })
+})
 
 module.exports = router;

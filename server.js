@@ -12,6 +12,7 @@ const Agentrouter = require('./routes/agentSetup.route');
 const publicRoutes = require('./routes/public.route');
 const adminRoutes = require('./routes/admin.routes');
 const Upgraderouter = require('./routes/subscription.routes')
+const { RunSubscriptionLifecycleCheck } = require('./controller/subscription.controller');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,6 +24,11 @@ const io = new Server(server, {
   }
 });
 
+setInterval(() => {
+    RunSubscriptionLifecycleCheck().catch((err) =>
+        console.error('Lifecycle interval error:', err)
+    );
+}, 6 * 60 * 60 * 1000);
 
 app.use(cors())
 // Middleware

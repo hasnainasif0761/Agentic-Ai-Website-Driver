@@ -1,5 +1,12 @@
 const { default: mongoose } = require("mongoose");
 
+const PLAN_QUOTAS = {
+    free: 15,
+    basic: 500,
+    silver: 3000,
+    golden: 15000
+};
+
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -44,6 +51,56 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+
+    // Subscription Validity & Quota Tracking
+    planStartedAt: {
+        type: Date,
+        default: Date.now
+    },
+    planExpiresAt: {
+        type: Date,
+        default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    },
+    usageLimit: {
+        type: Number,
+        default: 15
+    },
+    messagesUsed: {
+        type: Number,
+        default: 0
+    },
+    carryOverChats: {
+        type: Number,
+        default: 0
+    },
+    gracePeriodUntil: {
+        type: Date,
+        default: null
+    },
+
+   reminder5DaysSent: {
+        type: Boolean,
+        default: false
+    },
+    expiredNoticeSent: {
+        type: Boolean,
+        default: false
+    },
+    lastNotification: {
+        type: {
+            type: String, // '5_day_warning' | '30_day_expired' | 'resubscribed' | 'quota_exhausted'
+            default: null
+        },
+        message: {
+            type: String,
+            default: ''
+        },
+        sentAt: {
+            type: Date,
+            default: null
+        }
+    },
+
     paymentHistory: [
         {
             planType: { type: String },
@@ -53,7 +110,17 @@ const userSchema = new mongoose.Schema({
             date: { type: Date, default: Date.now }
         }
     ],
-    // Login & Security Tracking Fields
+    subscriptionLogs: [
+        {
+            action: { type: String }, // 'subscribe' | 'resubscribe' | 'upgrade' | 'expire' | 'reminder_5d'
+            fromPlan: { type: String },
+            toPlan: { type: String },
+            carryOverAdded: { type: Number, default: 0 },
+            daysAdded: { type: Number, default: 30 },
+            note: { type: String },
+            createdAt: { type: Date, default: Date.now }
+        }
+    ],
     loginCount: {
         type: Number,
         default: 0
@@ -70,6 +137,8 @@ const userSchema = new mongoose.Schema({
         }
     ]
 }, { timestamps: true });
+
+userSchema.statics.PLAN_QUOTAS = PLAN_QUOTAS;
 
 const User = mongoose.model('AiUser', userSchema);
 

@@ -3,7 +3,15 @@ const AgentSetup = require("../models/AgentSetup");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
-const JWT_SECRET = process.env.JWT_SECRET; 
+const JWT_SECRET = process.env.JWT_SECRET;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+const PLAN_QUOTAS = {
+    free: 15,
+    basic: 500,
+    silver: 3000,
+    golden: null
+};
 
 // LOGIN USER
 const LoginUser = async (req, res) => {
@@ -18,11 +26,16 @@ const LoginUser = async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
-        if (user.planStatus === 'suspended') {
+
+        const agent = await AgentSetup.findOne({ userId: user._id });
+        const currentPlanType = agent?.planType || 'free';
+        const currentPlanStatus = agent?.planStatus || 'active';
+
+        if (currentPlanStatus === 'suspended') {
             return res.status(403).json({
-            success: false,
-            message: "Aapka account suspend kar diya gaya hai. Mazeed maloomat ke liye administration se rabta karein."
-        });
+                success: false,
+                message: "Aapka account suspend kar diya gaya hai. Mazeed maloomat ke liye administration se rabta karein."
+            });
         }
 
         // Password Comparison with bcrypt
@@ -63,7 +76,7 @@ const LoginUser = async (req, res) => {
         const token = jwt.sign(
             { id: user._id, email: user.email },
             JWT_SECRET,
-            { expiresIn: "7d" } 
+            { expiresIn: "7d" }
         );
 
         console.log("User Login Successfully");
@@ -76,8 +89,8 @@ const LoginUser = async (req, res) => {
                 name: user.name,
                 email: user.email,
                 businessName: user.businessName,
-                planType: user.planType,
-                planStatus: user.planStatus
+                planType: currentPlanType,
+                planStatus: currentPlanStatus
             }
         });
 
@@ -108,8 +121,9 @@ const RegisterUser = async (req, res) => {
         }
 
         // Determine plan status: Free is active immediately, Paid plans require admin approval
-        const selectedPlan = planType || 'free';
-        const planStatus = selectedPlan === 'free' ? 'active' : 'pending_approval';
+        const selectedPlan = (planType || 'free').toLowerCase();
+        const validPlan = Object.prototype.hasOwnProperty.call(PLAN_QUOTAS, selectedPlan) ? selectedPlan : 'free';
+        const planStatus = validPlan === 'free' ? 'active' : 'pending_approval';
 
         // Password Hashing
         const salt = await bcrypt.genSalt(10);
@@ -122,26 +136,27 @@ const RegisterUser = async (req, res) => {
             phone,
             city,
             country,
-            planType: selectedPlan,
-            planStatus,
             paymentSlip: paymentSlipPath,
             password: hashedPassword
         });
 
         await newUser.save();
 
-        // Automatically create a corresponding AgentSetup profile for this user
-        let usageLimit = 15;
-        if (selectedPlan === 'basic') usageLimit = 500;
-        if (selectedPlan === 'silver') usageLimit = 3000;
-        if (selectedPlan === 'golden') usageLimit = 999999;
+        const now = new Date();
+        const planExpiresAt = new Date(now.getTime() + THIRTY_DAYS_MS);
+        const usageLimit = validPlan === 'golden' ? null : (PLAN_QUOTAS[validPlan] ?? 15);
 
         await AgentSetup.create({
             userId: newUser._id,
-            planType: selectedPlan,
-            planStatus: planStatus,
-            usageLimit: selectedPlan === 'free' ? 15 : (selectedPlan === 'basic' ? 500 : 3000),
-            messagesUsed: 0
+            businessName,
+            planType: validPlan,
+            planStatus,
+            planStartedAt: now,
+            planExpiresAt,
+            gracePeriodUntil: null,
+            usageLimit,
+            messagesUsed: 0,
+            carryOverChats: 0
         });
 
         // Generate JWT Token
@@ -161,8 +176,8 @@ const RegisterUser = async (req, res) => {
                 name: newUser.name,
                 email: newUser.email,
                 businessName: newUser.businessName,
-                planType: newUser.planType,
-                planStatus: newUser.planStatus
+                planType: validPlan,
+                planStatus
             }
         });
 
@@ -172,7 +187,7 @@ const RegisterUser = async (req, res) => {
     }
 };
 
-const updateUser = async(req,res)=>{
+const updateUser = async (req, res) => {
     try {
         const { name, email, company, avatar } = req.body;
         const userId = req.user._id || req.user.id;
@@ -218,9 +233,9 @@ const updateUser = async(req,res)=>{
         console.error("Update Profile Error:", err);
         return res.status(500).json({ success: false, message: "Server error while updating profile." });
     }
-}
+};
 
-const changePassword = async(req,res)=>{
+const changePassword = async (req, res) => {
     try {
         const { oldPassword, newPassword } = req.body;
         const userId = req.user._id || req.user.id;
@@ -257,6 +272,6 @@ const changePassword = async(req,res)=>{
         console.error("Change Password Error:", err);
         return res.status(500).json({ success: false, message: "Server error while changing password." });
     }
-}
+};
 
-module.exports = { LoginUser, RegisterUser,updateUser, changePassword };
+module.exports = { LoginUser, RegisterUser, updateUser, changePassword }

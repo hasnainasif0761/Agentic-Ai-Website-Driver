@@ -4,7 +4,7 @@ const authMiddleware = (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     // Check karein ke Authorization header majood hai aur "Bearer " se shuru ho raha hai
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ message: "No token provided or invalid format" });
     }
 

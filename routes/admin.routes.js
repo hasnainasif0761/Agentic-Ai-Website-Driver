@@ -10,7 +10,9 @@ const {
     PostAnnouncement,
     GetActiveAnnouncement,
     GetAnnouncementHistory,
-    GetBusinessDetailedReport
+    GetBusinessDetailedReport,
+    GetPendingExpiredAlerts,
+    HandleSubscriptionGovernanceAction
 } = require('../controller/admin.controller'); // Ensuring correct folder path
 const SystemAnnouncement = require('../models/SystemAnnouncement');
 const multer = require('multer');
@@ -35,6 +37,8 @@ router.get('/business/:userId', GetBusinessDetails360);
 router.put('/business/:userId',upload.single('paymentSlip'), UpdateBusinessPlanOrStatus);
 router.delete('/business/:userId', DeleteBusiness);
 router.get('/business/:userId/details', GetBusinessDetailedReport);
+router.get('/businesses/pending-expired-alerts', GetPendingExpiredAlerts);
+router.post('/business/:userId/subscription-action', HandleSubscriptionGovernanceAction);
 
 // Broadcast Routes
 router.post('/broadcast', PostAnnouncement);
